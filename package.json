@@ -1,0 +1,24 @@
+{
+  "name": "audio-visualizer-electron",
+  "version": "1.0.0",
+  "description": "Visualizador de audio con exportación de alta calidad a MP4",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "keywords": [
+    "audio",
+    "visualizer",
+    "electron",
+    "ffmpeg"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^28.3.3"
+  },
+  "dependencies": {
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
+    "fluent-ffmpeg": "^2.1.2"
+  }
+}

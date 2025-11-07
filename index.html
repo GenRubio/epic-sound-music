@@ -1,0 +1,610 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Video Manager - Audio Visualizer</title>
+<style>
+:root {
+  --primary: #ffd21f;
+  --bg-dark: #0b0f1a;
+  --bg-card: #101114;
+  --border: #2b2f3a;
+  --text: #fff;
+  --text-muted: #888;
+  --success: #4ade80;
+  --error: #ef4444;
+  --warning: #fbbf24;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: var(--bg-dark);
+  color: var(--text);
+  padding: 20px;
+  min-height: 100vh;
+}
+
+.container {
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 30px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+h1 {
+  font-size: 32px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.btn {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn:hover {
+  background: #171923;
+  border-color: var(--primary);
+}
+
+.btn-primary {
+  background: var(--primary);
+  color: #000;
+  border-color: var(--primary);
+}
+
+.btn-primary:hover {
+  background: #e6bd1b;
+  transform: translateY(-1px);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Tabla */
+.table-container {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+thead {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+th {
+  text-align: left;
+  padding: 16px;
+  font-weight: 600;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+}
+
+td {
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+tr:last-child td {
+  border-bottom: none;
+}
+
+tbody tr {
+  transition: background 0.2s;
+  position: relative;
+}
+
+tbody tr:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+td {
+  position: relative;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.status-pending {
+  background: rgba(251, 191, 36, 0.15);
+  color: var(--warning);
+}
+
+.status-generating {
+  background: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+}
+
+.status-completed {
+  background: rgba(74, 222, 128, 0.15);
+  color: var(--success);
+}
+
+.status-error {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--error);
+}
+
+.actions {
+  position: static;
+  display: inline-block;
+}
+
+.actions-btn {
+  background: transparent;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  padding: 4px 8px;
+  font-size: 18px;
+  position: relative;
+  z-index: 1;
+}
+
+.actions-menu {
+  position: fixed;
+  background: #1a1d26;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px;
+  min-width: 160px;
+  display: none;
+  z-index: 9999;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.8);
+}
+
+.actions-menu.show {
+  display: block;
+}
+
+.actions-menu button {
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  padding: 10px 12px;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.actions-menu button:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.actions-menu button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.actions-menu button.danger {
+  color: var(--error);
+}
+
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(4px);
+  display: none;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.modal-overlay.show {
+  display: flex;
+}
+
+.modal {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  max-width: 600px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.modal-header {
+  padding: 24px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.modal-header h2 {
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.modal-close {
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-size: 24px;
+  cursor: pointer;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+
+.modal-close:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.modal-body {
+  padding: 24px;
+}
+
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.form-group input,
+.form-group textarea {
+  width: 100%;
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.form-group input[type="color"] {
+  height: 48px;
+  padding: 4px;
+  cursor: pointer;
+}
+
+.form-group textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.file-input-wrapper {
+  position: relative;
+}
+
+.file-display {
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: border-color 0.2s;
+}
+
+.file-display:hover {
+  border-color: var(--primary);
+}
+
+.file-display.selected {
+  color: var(--text);
+  border-color: var(--success);
+}
+
+.modal-footer {
+  padding: 24px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-muted);
+}
+
+.empty-state-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+
+/* Preview Canvas */
+#previewCanvas {
+  width: 100%;
+  max-width: 500px;
+  aspect-ratio: 16/9;
+  border-radius: 8px;
+  background: #000;
+  display: block;
+  margin: 20px auto;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* Loading spinner */
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: var(--text);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.progress-bar {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 8px;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary), #ff8c42);
+  width: 0%;
+  transition: width 0.3s;
+}
+
+/* Notificaciones toast */
+.toast {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px 20px;
+  min-width: 300px;
+  max-width: 400px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  animation: slideIn 0.3s ease;
+  display: flex;
+  gap: 12px;
+  align-items: start;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(400px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.toast.success { border-left: 3px solid var(--success); }
+.toast.error { border-left: 3px solid var(--error); }
+.toast.warning { border-left: 3px solid var(--warning); }
+.toast.info { border-left: 3px solid #3b82f6; }
+
+.toast-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.toast-content {
+  flex: 1;
+}
+
+.toast-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.toast-message {
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.toast-close {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 18px;
+  padding: 0;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.toast-close:hover {
+  color: var(--text);
+}
+</style>
+</head>
+<body>
+
+<div class="container">
+  <div class="header">
+    <h1><span>🎬</span> Video Manager</h1>
+    <button type="button" class="btn btn-primary" id="newVideoBtn">
+      <span>+</span> Nuevo Video
+    </button>
+  </div>
+
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th>Título</th>
+          <th>Estado</th>
+          <th>Creado</th>
+          <th>Progreso</th>
+          <th style="width: 60px;">Acciones</th>
+        </tr>
+      </thead>
+      <tbody id="videosTableBody">
+        <!-- Será llenado dinámicamente -->
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Modal para nuevo video -->
+<div class="modal-overlay" id="newVideoModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>Nuevo Video</h2>
+      <button type="button" class="modal-close" id="closeModalBtn">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="newVideoForm">
+        <div class="form-group">
+          <label>Título *</label>
+          <input type="text" id="videoTitle" placeholder="Mi visualizador" required>
+        </div>
+
+        <div class="form-group">
+          <label>Audio *</label>
+          <div class="file-display" id="audioFileBtn">
+            <span>📁</span>
+            <span id="audioFileName">Seleccionar archivo de audio...</span>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Imagen de fondo</label>
+          <div class="file-display" id="bgFileBtn">
+            <span>🖼️</span>
+            <span id="bgFileName">Seleccionar imagen (opcional)</span>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Color del anillo</label>
+          <input type="color" id="videoColor" value="#ffd21f">
+        </div>
+
+        <div class="form-group">
+          <label>Contenido izquierdo</label>
+          <div style="display: flex; gap: 12px; margin-bottom: 12px;">
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+              <input type="radio" name="leftContent" value="text" id="contentTypeText" checked>
+              <span>Texto</span>
+            </label>
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+              <input type="radio" name="leftContent" value="image" id="contentTypeImage">
+              <span>Imagen</span>
+            </label>
+          </div>
+
+          <div id="textContent">
+            <textarea id="videoText" placeholder="NCS VISUALIZER&#10;(usa Enter para nueva línea)"></textarea>
+          </div>
+
+          <div id="imageContent" style="display: none;">
+            <div class="file-display" id="logoFileBtn">
+              <span>🖼️</span>
+              <span id="logoFileName">Seleccionar imagen para logo...</span>
+            </div>
+          </div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn" id="cancelModalBtn">Cancelar</button>
+      <button type="button" class="btn btn-primary" id="createVideoBtn">Crear</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal de preview -->
+<div class="modal-overlay" id="previewModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>Vista Previa</h2>
+      <button type="button" class="modal-close" id="closePreviewBtn">&times;</button>
+    </div>
+    <div class="modal-body">
+      <canvas id="previewCanvas" width="1920" height="1080"></canvas>
+      <div style="text-align:center; margin-top: 20px;">
+        <button type="button" class="btn btn-primary" id="playPreviewBtn" style="min-width: 120px;">
+          <span id="playPreviewIcon">▶</span>
+          <span id="playPreviewText">Reproducir</span>
+        </button>
+      </div>
+      <p style="text-align:center; color: var(--text-muted); margin-top: 12px;">
+        Haz clic en reproducir para ver la animación
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- Canvas oculto para renderizado -->
+<canvas id="vizCanvas" style="display:none;" width="1920" height="1080"></canvas>
+
+<!-- Contenedor de notificaciones -->
+<div id="toastContainer" style="position: fixed; top: 20px; right: 20px; z-index: 10000; display: flex; flex-direction: column; gap: 12px;"></div>
+
+<script src="renderer.js"></script>
+
+</body>
+</html>

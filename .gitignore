@@ -1,0 +1,14 @@
+node_modules/
+dist/
+build/
+*.log
+.DS_Store
+Thumbs.db
+frames_*
+visualizer_frames_*
+
+# Base de datos de videos
+videos.json
+
+# Videos generados
+outputs/

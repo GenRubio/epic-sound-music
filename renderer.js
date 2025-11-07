@@ -967,11 +967,11 @@ function renderFrame(ctx, canvas, particles, level, boost, video, bgImage) {
   ctx.save();
   ctx.translate(vizX, vizY);
 
-  // Anillo con efecto de agrandamiento balanceado
-  const baseR = vizSize * 0.28;
-  const pulse = (level * 0.9 + boost * 1.3); // Balanceado para no hacerse muy grande
-  const radius = baseR * (1.0 + pulse * 0.45); // Multiplicador moderado
-  const glow = 22 + pulse * 60; // Glow balanceado
+  // Anillo con efecto de agrandamiento más pronunciado (20% más) y círculo base 20% más grande
+  const baseR = vizSize * 0.336; // Aumentado de 0.28 a 0.336 (20% más grande)
+  const pulse = (level * 1.08 + boost * 1.56); // Aumentado 20% para más visibilidad
+  const radius = baseR * (1.0 + pulse * 0.54); // Aumentado 20%
+  const glow = 22 + pulse * 72; // Aumentado 20%
 
   ctx.beginPath();
   ctx.lineWidth = Math.max(6, vizSize * 0.01);
@@ -981,19 +981,19 @@ function renderFrame(ctx, canvas, particles, level, boost, video, bgImage) {
   ctx.arc(0, 0, radius, 0, Math.PI * 2);
   ctx.stroke();
 
-  // Partículas orbitando con movimiento balanceado
+  // Partículas orbitando con movimiento más pronunciado (20% más)
   const orbitCount = 120;
   for (let i = 0; i < orbitCount; i++) {
     const t = (i / orbitCount) * Math.PI * 2 + performance.now() / 900;
     const jitter = (Math.sin((i * 13.37 + performance.now() / 70) % Math.PI) * 0.5 + 0.5) * 4;
-    const pr = radius + 8 + jitter + pulse * 18; // Balanceado para mejor efecto
+    const pr = radius + 8 + jitter + pulse * 21.6; // Aumentado 20% para más efecto visual
     const x = Math.cos(t) * pr;
     const y = Math.sin(t) * pr;
 
     ctx.beginPath();
     ctx.fillStyle = video.color;
     ctx.globalAlpha = 0.55 + Math.random() * 0.35;
-    ctx.arc(x, y, 1.8 + Math.random() * 1.5 + pulse * 0.35, 0, Math.PI * 2); // Partículas balanceadas
+    ctx.arc(x, y, 1.8 + Math.random() * 1.5 + pulse * 0.42, 0, Math.PI * 2); // Aumentado 20%
     ctx.fill();
     ctx.globalAlpha = 1;
   }

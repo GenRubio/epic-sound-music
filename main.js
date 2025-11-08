@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const ffmpeg = require('fluent-ffmpeg');
@@ -275,13 +275,11 @@ ipcMain.handle('delete-video', async (event, id) => {
 
 // Abrir carpeta del video
 ipcMain.handle('open-video-folder', async (event, videoPath) => {
-  const { shell } = require('electron');
-  shell.showItemInInFolder(videoPath);
+  shell.showItemInFolder(videoPath);
 });
 
 // Abrir archivo de video
 ipcMain.handle('open-video-file', async (event, videoPath) => {
-  const { shell } = require('electron');
   await shell.openPath(videoPath);
 });
 

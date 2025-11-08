@@ -485,9 +485,14 @@ td {
 <div class="container">
   <div class="header">
     <h1><span>🎬</span> Video Manager</h1>
-    <button type="button" class="btn btn-primary" id="newVideoBtn">
-      <span>+</span> Nuevo Video
-    </button>
+    <div style="display: flex; gap: 12px;">
+      <button type="button" class="btn" id="settingsBtn">
+        <span>⚙️</span> Settings
+      </button>
+      <button type="button" class="btn btn-primary" id="newVideoBtn">
+        <span>+</span> Nuevo Video
+      </button>
+    </div>
   </div>
 
   <div class="table-container">
@@ -587,6 +592,16 @@ td {
             </div>
           </div>
         </div>
+
+        <div class="form-group">
+          <label>Suno Lyrics</label>
+          <textarea id="sunoLyrics" placeholder="Enter the song lyrics here..." rows="4"></textarea>
+        </div>
+
+        <div class="form-group">
+          <label>Suno Styles</label>
+          <input type="text" id="sunoStyles" placeholder="e.g., pop, electronic, rock">
+        </div>
       </form>
     </div>
     <div class="modal-footer">
@@ -596,9 +611,34 @@ td {
   </div>
 </div>
 
+<!-- Modal de Settings -->
+<div class="modal-overlay" id="settingsModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>Settings</h2>
+      <button type="button" class="modal-close" id="closeSettingsBtn">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="settingsForm">
+        <div class="form-group">
+          <label>Gemini API Key</label>
+          <input type="password" id="geminiApiKey" placeholder="Enter your Gemini API key">
+          <p style="font-size: 12px; color: var(--text-muted); margin-top: 8px;">
+            Get your API key from <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color: var(--primary);">Google AI Studio</a>
+          </p>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn" id="cancelSettingsBtn">Cancelar</button>
+      <button type="button" class="btn btn-primary" id="saveSettingsBtn">Guardar</button>
+    </div>
+  </div>
+</div>
+
 <!-- Modal de preview -->
 <div class="modal-overlay" id="previewModal">
-  <div class="modal">
+  <div class="modal" style="max-width: 900px;">
     <div class="modal-header">
       <h2>Vista Previa</h2>
       <button type="button" class="modal-close" id="closePreviewBtn">&times;</button>
@@ -614,6 +654,31 @@ td {
       <p style="text-align:center; color: var(--text-muted); margin-top: 12px;">
         Haz clic en reproducir para ver la animación
       </p>
+
+      <!-- YouTube Metadata Section -->
+      <div id="youtubeMetadata" style="margin-top: 30px; padding-top: 20px; border-top: 1px solid var(--border); display: none;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <h3 style="font-size: 18px; font-weight: 600;">YouTube Metadata</h3>
+          <button type="button" class="btn" id="regenerateMetadataBtn">
+            <span>🔄</span> Regenerar
+          </button>
+        </div>
+
+        <div class="form-group">
+          <label style="font-weight: 600;">Title</label>
+          <input type="text" id="ytTitle" readonly style="background: var(--bg-dark); cursor: text;">
+        </div>
+
+        <div class="form-group">
+          <label style="font-weight: 600;">Description</label>
+          <textarea id="ytDescription" readonly rows="4" style="background: var(--bg-dark); cursor: text;"></textarea>
+        </div>
+
+        <div class="form-group">
+          <label style="font-weight: 600;">Tags</label>
+          <input type="text" id="ytTags" readonly style="background: var(--bg-dark); cursor: text;">
+        </div>
+      </div>
     </div>
   </div>
 </div>

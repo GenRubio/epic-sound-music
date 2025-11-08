@@ -9,6 +9,7 @@ visualizer_frames_*
 
 # Base de datos de videos
 videos.json
+settings.json
 
 # Videos generados
 outputs/

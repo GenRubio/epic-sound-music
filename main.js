@@ -177,6 +177,7 @@ ipcMain.handle('save-video-dialog', async () => {
 // ========== GESTIÓN DE BASE DE DATOS DE VIDEOS ==========
 
 const dbPath = path.join(__dirname, 'videos.json');
+const settingsPath = path.join(__dirname, 'settings.json');
 const outputsDir = path.join(__dirname, 'outputs');
 
 // Crear directorio de outputs si no existe
@@ -231,6 +232,11 @@ ipcMain.handle('create-video', async (event, videoData) => {
     logoPath: videoData.logoPath || null,
     color: videoData.color,
     text: videoData.text,
+    sunoLyrics: videoData.sunoLyrics || '',
+    sunoStyles: videoData.sunoStyles || '',
+    youtubeTitle: videoData.youtubeTitle || null,
+    youtubeDescription: videoData.youtubeDescription || null,
+    youtubeTags: videoData.youtubeTags || null,
     status: 'pending', // pending, generating, completed, error
     createdAt: new Date().toISOString(),
     outputPath: null,
@@ -283,6 +289,113 @@ ipcMain.handle('open-video-file', async (event, videoPath) => {
 // Obtener path de outputs
 ipcMain.handle('get-outputs-dir', () => {
   return outputsDir;
+});
+
+// ========== GESTIÓN DE SETTINGS ==========
+
+// Cargar settings
+function loadSettings() {
+  if (!fs.existsSync(settingsPath)) {
+    const defaultSettings = { geminiApiKey: '' };
+    fs.writeFileSync(settingsPath, JSON.stringify(defaultSettings, null, 2));
+    return defaultSettings;
+  }
+  return JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+}
+
+// Guardar settings
+function saveSettings(settings) {
+  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+}
+
+// Obtener settings
+ipcMain.handle('get-settings', async () => {
+  return loadSettings();
+});
+
+// Guardar settings
+ipcMain.handle('save-settings', async (event, settings) => {
+  saveSettings(settings);
+  return true;
+});
+
+// Generar metadatos de YouTube con Gemini
+ipcMain.handle('generate-youtube-metadata', async (event, { sunoLyrics, sunoStyles }) => {
+  const settings = loadSettings();
+  const apiKey = settings.geminiApiKey;
+
+  if (!apiKey) {
+    throw new Error('Gemini API key not configured. Please add it in Settings.');
+  }
+
+  try {
+    const prompt = `You are an expert in YouTube SEO and music marketing. Based on the following song information, generate optimized metadata for a YouTube music video.
+
+Song Lyrics:
+${sunoLyrics}
+
+Music Styles: ${sunoStyles}
+
+Please generate:
+1. A catchy, SEO-optimized title (max 100 characters)
+2. A compelling description (2-3 paragraphs) that includes relevant keywords
+3. A list of relevant tags (comma-separated, at least 10-15 tags)
+
+Format your response EXACTLY as a JSON object like this:
+{
+  "title": "Your title here",
+  "description": "Your description here",
+  "tags": "tag1, tag2, tag3, ..."
+}
+
+Important:
+- Everything must be in English
+- Focus on music genre, mood, and themes from the lyrics
+- Make it SEO-friendly for YouTube search
+- The title should be engaging and clickable
+- Include relevant hashtags in the description
+- Tags should cover genre, mood, instruments, similar artists, and themes`;
+
+    const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=' + apiKey, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{
+            text: prompt
+          }]
+        }],
+        generationConfig: {
+          temperature: 0.9,
+          topK: 40,
+          topP: 0.95,
+          maxOutputTokens: 2048,
+        }
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
+    }
+
+    const data = await response.json();
+    const generatedText = data.candidates[0].content.parts[0].text;
+
+    // Extraer JSON de la respuesta
+    const jsonMatch = generatedText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error('Failed to parse Gemini response');
+    }
+
+    const metadata = JSON.parse(jsonMatch[0]);
+    return metadata;
+  } catch (error) {
+    console.error('Error generating YouTube metadata:', error);
+    throw error;
+  }
 });
 
 // ========== ANÁLISIS DE AUDIO CON FFMPEG ==========

@@ -37,5 +37,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   // Analizar audio con FFmpeg para detectar bajos
-  analyzeAudioFFmpeg: (options) => ipcRenderer.invoke('analyze-audio-ffmpeg', options)
+  analyzeAudioFFmpeg: (options) => ipcRenderer.invoke('analyze-audio-ffmpeg', options),
+
+  // Settings
+  getSettings: () => ipcRenderer.invoke('get-settings'),
+  saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
+
+  // YouTube metadata generation
+  generateYoutubeMetadata: (data) => ipcRenderer.invoke('generate-youtube-metadata', data)
 });

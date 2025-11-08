@@ -18,8 +18,17 @@ let previewStartTime = 0;
 // ==================== INICIALIZACIÓN ====================
 document.addEventListener('DOMContentLoaded', async () => {
   await loadVideos();
+  await loadSettings();
   initEventListeners();
 });
+
+// ==================== SETTINGS ====================
+async function loadSettings() {
+  const settings = await window.electronAPI.getSettings();
+  if (settings.geminiApiKey) {
+    document.getElementById('geminiApiKey').value = settings.geminiApiKey;
+  }
+}
 
 // ==================== CARGAR VIDEOS ====================
 async function loadVideos() {
@@ -168,6 +177,13 @@ function initEventListeners() {
   // Preview modal
   document.getElementById('closePreviewBtn').addEventListener('click', closePreviewModal);
   document.getElementById('playPreviewBtn').addEventListener('click', togglePreviewPlayback);
+  document.getElementById('regenerateMetadataBtn').addEventListener('click', handleRegenerateMetadata);
+
+  // Settings modal
+  document.getElementById('settingsBtn').addEventListener('click', openSettingsModal);
+  document.getElementById('closeSettingsBtn').addEventListener('click', closeSettingsModal);
+  document.getElementById('cancelSettingsBtn').addEventListener('click', closeSettingsModal);
+  document.getElementById('saveSettingsBtn').addEventListener('click', handleSaveSettings);
 
   // Cerrar modal al hacer clic fuera
   document.getElementById('newVideoModal').addEventListener('click', (e) => {
@@ -175,6 +191,9 @@ function initEventListeners() {
   });
   document.getElementById('previewModal').addEventListener('click', (e) => {
     if (e.target.id === 'previewModal') closePreviewModal();
+  });
+  document.getElementById('settingsModal').addEventListener('click', (e) => {
+    if (e.target.id === 'settingsModal') closeSettingsModal();
   });
 
   // Progreso de FFmpeg (ahora manejado por video específico)
@@ -254,6 +273,27 @@ function initEventListeners() {
       showToast('error', 'Error', `Error en acción ${action}: ${error.message}`);
     }
   });
+}
+
+// ==================== MODAL SETTINGS ====================
+function openSettingsModal() {
+  document.getElementById('settingsModal').classList.add('show');
+}
+
+function closeSettingsModal() {
+  document.getElementById('settingsModal').classList.remove('show');
+}
+
+async function handleSaveSettings() {
+  const apiKey = document.getElementById('geminiApiKey').value.trim();
+
+  try {
+    await window.electronAPI.saveSettings({ geminiApiKey: apiKey });
+    showToast('success', 'Settings saved', 'Gemini API key saved successfully');
+    closeSettingsModal();
+  } catch (error) {
+    showToast('error', 'Error', 'Failed to save settings: ' + error.message);
+  }
 }
 
 // ==================== MODAL NUEVO VIDEO ====================
@@ -349,6 +389,8 @@ async function handleCreateVideo() {
   const color = document.getElementById('videoColor').value;
   const text = document.getElementById('videoText').value;
   const useImage = document.getElementById('contentTypeImage').checked;
+  const sunoLyrics = document.getElementById('sunoLyrics').value.trim();
+  const sunoStyles = document.getElementById('sunoStyles').value.trim();
 
   if (!title) {
     showToast('error', 'Error', 'Por favor ingresa un título');
@@ -358,6 +400,24 @@ async function handleCreateVideo() {
   if (!selectedAudioPath) {
     showToast('error', 'Error', 'Por favor selecciona un archivo de audio');
     return;
+  }
+
+  // Generar metadatos de YouTube si hay lyrics o styles (al menos uno)
+  let youtubeMetadata = null;
+  if (sunoLyrics || sunoStyles) {
+    try {
+      showToast('info', 'Generando metadatos', 'Generando metadatos de YouTube con Gemini...', false);
+      youtubeMetadata = await window.electronAPI.generateYoutubeMetadata({
+        sunoLyrics: sunoLyrics || 'No lyrics provided',
+        sunoStyles: sunoStyles || 'General music'
+      });
+      document.querySelectorAll('.toast').forEach(t => t.remove());
+      showToast('success', 'Metadatos generados', 'Metadatos de YouTube generados exitosamente');
+    } catch (error) {
+      console.error('Error generating YouTube metadata:', error);
+      showToast('error', 'Error', error.message || 'Failed to generate YouTube metadata');
+      // Continuar sin metadatos
+    }
   }
 
   // Si estamos editando, actualizar en lugar de crear
@@ -370,8 +430,17 @@ async function handleCreateVideo() {
       color,
       text: useImage ? '' : text,
       logoPath: useImage ? selectedLogoPath : null,
+      sunoLyrics,
+      sunoStyles,
       status: 'pending' // Resetear a pending cuando se edita
     };
+
+    // Añadir metadatos si fueron generados
+    if (youtubeMetadata) {
+      updatedData.youtubeTitle = youtubeMetadata.title;
+      updatedData.youtubeDescription = youtubeMetadata.description;
+      updatedData.youtubeTags = youtubeMetadata.tags;
+    }
 
     // Actualizar en la base de datos
     const updatedVideo = await window.electronAPI.updateVideo(editingVideoId, updatedData);
@@ -398,8 +467,17 @@ async function handleCreateVideo() {
     bgVideoPath: selectedBgVideoPath,
     color,
     text: useImage ? '' : text,
-    logoPath: useImage ? selectedLogoPath : null
+    logoPath: useImage ? selectedLogoPath : null,
+    sunoLyrics,
+    sunoStyles
   };
+
+  // Añadir metadatos si fueron generados
+  if (youtubeMetadata) {
+    videoData.youtubeTitle = youtubeMetadata.title;
+    videoData.youtubeDescription = youtubeMetadata.description;
+    videoData.youtubeTags = youtubeMetadata.tags;
+  }
 
   const newVideo = await window.electronAPI.createVideo(videoData);
   videos.unshift(newVideo);
@@ -472,6 +550,34 @@ async function handlePreview(id) {
     previewPlaying = false;
     updatePlayButton();
 
+    // Mostrar metadatos de YouTube si existen o si hay Suno Lyrics/Styles
+    const hasMetadata = !!(video.youtubeTitle || video.youtubeDescription || video.youtubeTags);
+    const hasSunoData = !!(video.sunoLyrics || video.sunoStyles); // Al menos uno de los dos
+
+    // Debug info
+    console.log('[handlePreview] Video ID:', video.id);
+    console.log('[handlePreview] Has Metadata:', hasMetadata);
+    console.log('[handlePreview] Has Suno Data:', hasSunoData);
+    console.log('[handlePreview] Suno Lyrics:', video.sunoLyrics);
+    console.log('[handlePreview] Suno Styles:', video.sunoStyles);
+
+    if (hasMetadata || hasSunoData) {
+      document.getElementById('youtubeMetadata').style.display = 'block';
+      document.getElementById('ytTitle').value = video.youtubeTitle || '';
+      document.getElementById('ytDescription').value = video.youtubeDescription || '';
+      document.getElementById('ytTags').value = video.youtubeTags || '';
+
+      // Cambiar texto del botón si no hay metadatos
+      const regenerateBtn = document.getElementById('regenerateMetadataBtn');
+      if (!hasMetadata && hasSunoData) {
+        regenerateBtn.innerHTML = '<span>✨</span> Generar Metadatos';
+      } else {
+        regenerateBtn.innerHTML = '<span>🔄</span> Regenerar';
+      }
+    } else {
+      document.getElementById('youtubeMetadata').style.display = 'none';
+    }
+
     // Mostrar modal
     document.getElementById('previewModal').classList.add('show');
   } catch (error) {
@@ -489,6 +595,58 @@ function closePreviewModal() {
     previewAudio.pause();
     previewAudio.src = '';
     previewAudio = null;
+  }
+}
+
+async function handleRegenerateMetadata() {
+  if (!previewVideoData) return;
+
+  const video = videos.find(v => v.id === previewVideoData.id);
+  if (!video || (!video.sunoLyrics && !video.sunoStyles)) {
+    showToast('error', 'Error', 'No Suno Lyrics or Styles found for this video');
+    return;
+  }
+
+  try {
+    showToast('info', 'Regenerando', 'Regenerando metadatos de YouTube con Gemini...', false);
+
+    const youtubeMetadata = await window.electronAPI.generateYoutubeMetadata({
+      sunoLyrics: video.sunoLyrics || 'No lyrics provided',
+      sunoStyles: video.sunoStyles || 'General music'
+    });
+
+    // Actualizar en la base de datos
+    await window.electronAPI.updateVideo(video.id, {
+      youtubeTitle: youtubeMetadata.title,
+      youtubeDescription: youtubeMetadata.description,
+      youtubeTags: youtubeMetadata.tags
+    });
+
+    // Actualizar en el array local
+    const index = videos.findIndex(v => v.id === video.id);
+    if (index !== -1) {
+      videos[index].youtubeTitle = youtubeMetadata.title;
+      videos[index].youtubeDescription = youtubeMetadata.description;
+      videos[index].youtubeTags = youtubeMetadata.tags;
+    }
+
+    // Actualizar los campos en el modal
+    document.getElementById('ytTitle').value = youtubeMetadata.title;
+    document.getElementById('ytDescription').value = youtubeMetadata.description;
+    document.getElementById('ytTags').value = youtubeMetadata.tags;
+    document.getElementById('youtubeMetadata').style.display = 'block';
+
+    // Actualizar previewVideoData
+    previewVideoData.youtubeTitle = youtubeMetadata.title;
+    previewVideoData.youtubeDescription = youtubeMetadata.description;
+    previewVideoData.youtubeTags = youtubeMetadata.tags;
+
+    document.querySelectorAll('.toast').forEach(t => t.remove());
+    showToast('success', 'Metadatos regenerados', 'Metadatos de YouTube regenerados exitosamente');
+  } catch (error) {
+    console.error('Error regenerating YouTube metadata:', error);
+    document.querySelectorAll('.toast').forEach(t => t.remove());
+    showToast('error', 'Error', error.message || 'Failed to regenerate YouTube metadata');
   }
 }
 
@@ -709,6 +867,8 @@ async function handleEdit(id) {
   document.getElementById('videoTitle').value = video.title;
   document.getElementById('videoColor').value = video.color;
   document.getElementById('videoText').value = video.text || '';
+  document.getElementById('sunoLyrics').value = video.sunoLyrics || '';
+  document.getElementById('sunoStyles').value = video.sunoStyles || '';
 
   // Configurar audio
   selectedAudioPath = video.audioPath;
@@ -769,7 +929,10 @@ async function handleDuplicate(id) {
     bgVideoPath: video.bgVideoPath || null,
     logoPath: video.logoPath || null,
     color: video.color,
-    text: video.text
+    text: video.text,
+    sunoLyrics: video.sunoLyrics || '',
+    sunoStyles: video.sunoStyles || ''
+    // No copiar metadatos de YouTube para permitir regenerarlos
   };
 
   const newVideo = await window.electronAPI.createVideo(duplicatedVideo);

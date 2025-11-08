@@ -153,6 +153,8 @@ Asegúrate de que el análisis de audio esté completo antes de renderizar. El s
 └─────────────┘
 ```
 
+##  https://fixthephoto.com/es/photoshop-online.html
+
 ## Licencia
 
 MIT

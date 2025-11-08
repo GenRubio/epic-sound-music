@@ -2,6 +2,7 @@
 let videos = [];
 let selectedAudioPath = null;
 let selectedBgPath = null;
+let selectedBgVideoPath = null;
 let selectedLogoPath = null;
 let currentGeneratingIds = new Set(); // Permite múltiples generaciones
 
@@ -146,11 +147,16 @@ function initEventListeners() {
   // Archivos en modal
   document.getElementById('audioFileBtn').addEventListener('click', selectAudio);
   document.getElementById('bgFileBtn').addEventListener('click', selectBg);
+  document.getElementById('bgVideoBtn').addEventListener('click', selectBgVideo);
   document.getElementById('logoFileBtn').addEventListener('click', selectLogo);
 
   // Switch entre texto e imagen
   document.getElementById('contentTypeText').addEventListener('change', toggleContentType);
   document.getElementById('contentTypeImage').addEventListener('change', toggleContentType);
+
+  // Switch entre imagen y video de fondo
+  document.getElementById('bgTypeImage').addEventListener('change', toggleBgType);
+  document.getElementById('bgTypeVideo').addEventListener('change', toggleBgType);
 
   // Preview modal
   document.getElementById('closePreviewBtn').addEventListener('click', closePreviewModal);
@@ -252,21 +258,32 @@ function resetForm() {
   document.getElementById('newVideoForm').reset();
   selectedAudioPath = null;
   selectedBgPath = null;
+  selectedBgVideoPath = null;
   selectedLogoPath = null;
   document.getElementById('audioFileName').textContent = 'Seleccionar archivo de audio...';
   document.getElementById('bgFileName').textContent = 'Seleccionar imagen (opcional)';
+  document.getElementById('bgVideoName').textContent = 'Seleccionar video (opcional)';
   document.getElementById('logoFileName').textContent = 'Seleccionar imagen para logo...';
   document.getElementById('audioFileBtn').classList.remove('selected');
   document.getElementById('bgFileBtn').classList.remove('selected');
+  document.getElementById('bgVideoBtn').classList.remove('selected');
   document.getElementById('logoFileBtn').classList.remove('selected');
   document.getElementById('contentTypeText').checked = true;
+  document.getElementById('bgTypeImage').checked = true;
   toggleContentType();
+  toggleBgType();
 }
 
 function toggleContentType() {
   const textSelected = document.getElementById('contentTypeText').checked;
   document.getElementById('textContent').style.display = textSelected ? 'block' : 'none';
   document.getElementById('imageContent').style.display = textSelected ? 'none' : 'block';
+}
+
+function toggleBgType() {
+  const imageSelected = document.getElementById('bgTypeImage').checked;
+  document.getElementById('bgImageContent').style.display = imageSelected ? 'block' : 'none';
+  document.getElementById('bgVideoContent').style.display = imageSelected ? 'none' : 'block';
 }
 
 async function selectAudio() {
@@ -286,6 +303,16 @@ async function selectBg() {
     const fileName = filePath.split(/[\\/]/).pop();
     document.getElementById('bgFileName').textContent = fileName;
     document.getElementById('bgFileBtn').classList.add('selected');
+  }
+}
+
+async function selectBgVideo() {
+  const filePath = await window.electronAPI.selectBgVideo();
+  if (filePath) {
+    selectedBgVideoPath = filePath;
+    const fileName = filePath.split(/[\\/]/).pop();
+    document.getElementById('bgVideoName').textContent = fileName;
+    document.getElementById('bgVideoBtn').classList.add('selected');
   }
 }
 
@@ -319,6 +346,7 @@ async function handleCreateVideo() {
     title,
     audioPath: selectedAudioPath,
     bgPath: selectedBgPath,
+    bgVideoPath: selectedBgVideoPath,
     color,
     text: useImage ? '' : text,
     logoPath: useImage ? selectedLogoPath : null
@@ -349,6 +377,10 @@ async function handlePreview(id) {
     // Cargar imágenes si existen
     if (previewVideoData.bgPath) {
       previewVideoData.bgImage = await loadImage('file:///' + previewVideoData.bgPath.replace(/\\/g, '/'));
+    }
+    // Cargar video de fondo si existe
+    if (previewVideoData.bgVideoPath) {
+      previewVideoData.bgVideo = await loadVideo('file:///' + previewVideoData.bgVideoPath.replace(/\\/g, '/'));
     }
     if (previewVideoData.logoPath) {
       previewVideoData.logoImage = await loadImage('file:///' + previewVideoData.logoPath.replace(/\\/g, '/'));
@@ -441,6 +473,13 @@ function startPreviewPlayback() {
   // Reproducir audio
   previewAudio.currentTime = 0;
   previewAudio.play();
+
+  // Reproducir video de fondo si existe
+  if (previewVideoData.bgVideo) {
+    previewVideoData.bgVideo.currentTime = 0;
+    previewVideoData.bgVideo.play();
+  }
+
   previewStartTime = performance.now();
 
   const canvas = document.getElementById('previewCanvas');
@@ -495,6 +534,11 @@ function stopPreviewPlayback() {
   // Pausar audio
   if (previewAudio) {
     previewAudio.pause();
+  }
+
+  // Pausar video de fondo si existe
+  if (previewVideoData && previewVideoData.bgVideo) {
+    previewVideoData.bgVideo.pause();
   }
 
   if (previewAnimationId) {
@@ -718,6 +762,13 @@ async function generateVideo(video) {
     bgImage = await loadImage('file:///' + video.bgPath.replace(/\\/g, '/'));
   }
 
+  // Cargar video de fondo si existe
+  let bgVideo = null;
+  if (video.bgVideoPath) {
+    bgVideo = await loadVideo('file:///' + video.bgVideoPath.replace(/\\/g, '/'));
+    video.bgVideo = bgVideo;
+  }
+
   // Cargar imagen de logo si existe
   let logoImage = null;
   if (video.logoPath) {
@@ -743,6 +794,20 @@ async function generateVideo(video) {
     const level = bassLevels[frameNum];
     const prevLevel = frameNum > 0 ? bassLevels[frameNum - 1] : 0;
     const delta = Math.max(0, level - prevLevel);
+
+    // Sincronizar video de fondo si existe
+    if (bgVideo) {
+      const videoTime = (frameNum / fps) % bgVideo.duration;
+      bgVideo.currentTime = videoTime;
+      // Esperar a que el frame del video esté listo
+      await new Promise(resolve => {
+        if (bgVideo.readyState >= 2) {
+          resolve();
+        } else {
+          bgVideo.addEventListener('loadeddata', resolve, { once: true });
+        }
+      });
+    }
 
     // Actualizar estado
     bassSmooth = bassSmooth * 0.82 + level * 0.18;
@@ -906,9 +971,14 @@ function renderFrame(ctx, canvas, particles, level, boost, video, bgImage) {
   const h = canvas.height;
 
   // Fondo
-  if (bgImage) {
+  if (video.bgVideo) {
+    // Dibujar video de fondo (silenciado)
+    ctx.drawImage(video.bgVideo, 0, 0, w, h);
+  } else if (bgImage) {
+    // Dibujar imagen de fondo
     ctx.drawImage(bgImage, 0, 0, w, h);
   } else {
+    // Fondo sólido por defecto
     ctx.fillStyle = '#0b0f1a';
     ctx.fillRect(0, 0, w, h);
   }
@@ -1027,6 +1097,24 @@ function loadImage(src) {
     img.onload = () => resolve(img);
     img.onerror = reject;
     img.src = src;
+  });
+}
+
+function loadVideo(src) {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement('video');
+    video.muted = true; // IMPORTANTE: Silenciar el video
+    video.loop = true; // Loop para que se repita durante toda la duración del audio
+    video.playsInline = true;
+
+    video.addEventListener('loadedmetadata', () => {
+      video.currentTime = 0;
+      resolve(video);
+    });
+
+    video.addEventListener('error', reject);
+    video.src = src;
+    video.load();
   });
 }
 

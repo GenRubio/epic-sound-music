@@ -68,6 +68,19 @@ ipcMain.handle('select-bg-file', async () => {
   return result.filePaths[0];
 });
 
+// Diálogo para seleccionar video de fondo
+ipcMain.handle('select-bg-video', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openFile'],
+    filters: [
+      { name: 'Video', extensions: ['mp4', 'webm', 'mov', 'avi', 'mkv'] }
+    ]
+  });
+
+  if (result.canceled) return null;
+  return result.filePaths[0];
+});
+
 // Generar video con FFmpeg
 ipcMain.handle('generate-video', async (event, options) => {
   const { audioPath, framesDir, outputPath, fps, totalFrames } = options;
@@ -198,6 +211,7 @@ ipcMain.handle('create-video', async (event, videoData) => {
     title: videoData.title,
     audioPath: videoData.audioPath,
     bgPath: videoData.bgPath || null,
+    bgVideoPath: videoData.bgVideoPath || null,
     logoPath: videoData.logoPath || null,
     color: videoData.color,
     text: videoData.text,

@@ -531,10 +531,30 @@ td {
         </div>
 
         <div class="form-group">
-          <label>Imagen de fondo</label>
-          <div class="file-display" id="bgFileBtn">
-            <span>🖼️</span>
-            <span id="bgFileName">Seleccionar imagen (opcional)</span>
+          <label>Fondo</label>
+          <div style="display: flex; gap: 12px; margin-bottom: 12px;">
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+              <input type="radio" name="bgType" value="image" id="bgTypeImage" checked>
+              <span>Imagen</span>
+            </label>
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+              <input type="radio" name="bgType" value="video" id="bgTypeVideo">
+              <span>Video</span>
+            </label>
+          </div>
+
+          <div id="bgImageContent">
+            <div class="file-display" id="bgFileBtn">
+              <span>🖼️</span>
+              <span id="bgFileName">Seleccionar imagen (opcional)</span>
+            </div>
+          </div>
+
+          <div id="bgVideoContent" style="display: none;">
+            <div class="file-display" id="bgVideoBtn">
+              <span>🎥</span>
+              <span id="bgVideoName">Seleccionar video (opcional)</span>
+            </div>
           </div>
         </div>
 

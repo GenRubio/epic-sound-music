@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Seleccionar archivos
   selectAudioFile: () => ipcRenderer.invoke('select-audio-file'),
   selectBgFile: () => ipcRenderer.invoke('select-bg-file'),
+  selectBgVideo: () => ipcRenderer.invoke('select-bg-video'),
 
   // Generación de video
   saveFrame: (frameData, frameNumber, framesDir) =>

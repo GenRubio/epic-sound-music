@@ -200,6 +200,22 @@ function saveDB(data) {
 // Obtener todos los videos
 ipcMain.handle('get-videos', async () => {
   const db = loadDB();
+
+  // Resetear videos en estado 'generating' a 'pending'
+  let hasChanges = false;
+  db.videos = db.videos.map(video => {
+    if (video.status === 'generating') {
+      hasChanges = true;
+      return { ...video, status: 'pending' };
+    }
+    return video;
+  });
+
+  // Guardar cambios si hubo videos reseteados
+  if (hasChanges) {
+    saveDB(db);
+  }
+
   return db.videos;
 });
 

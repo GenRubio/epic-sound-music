@@ -5,6 +5,7 @@ let selectedBgPath = null;
 let selectedBgVideoPath = null;
 let selectedLogoPath = null;
 let currentGeneratingIds = new Set(); // Permite múltiples generaciones
+let editingVideoId = null; // ID del video que se está editando
 
 // Estado para preview animado
 let previewPlaying = false;
@@ -124,6 +125,12 @@ function getActionsHTML(video) {
         <span>📂</span> Open Folder
       </button>
     ` : ''}
+    <button type="button" data-action="edit" data-id="${video.id}" ${isGenerating ? 'disabled' : ''}>
+      <span>✏️</span> Edit
+    </button>
+    <button type="button" data-action="duplicate" data-id="${video.id}">
+      <span>📋</span> Duplicate
+    </button>
     <button type="button" data-action="delete" data-id="${video.id}" ${isGenerating ? 'disabled' : ''} class="danger">
       <span>🗑️</span> Delete
     </button>
@@ -232,6 +239,12 @@ function initEventListeners() {
         case 'open-folder':
           await handleOpenFolder(id);
           break;
+        case 'edit':
+          await handleEdit(id);
+          break;
+        case 'duplicate':
+          await handleDuplicate(id);
+          break;
         case 'delete':
           await handleDelete(id);
           break;
@@ -252,6 +265,11 @@ function openNewVideoModal() {
 function closeNewVideoModal() {
   document.getElementById('newVideoModal').classList.remove('show');
   resetForm();
+  editingVideoId = null; // Limpiar ID de edición
+
+  // Restaurar el botón a "Crear" si estaba en modo edición
+  const createBtn = document.getElementById('createVideoBtn');
+  createBtn.textContent = 'Crear';
 }
 
 function resetForm() {
@@ -342,6 +360,37 @@ async function handleCreateVideo() {
     return;
   }
 
+  // Si estamos editando, actualizar en lugar de crear
+  if (editingVideoId) {
+    const updatedData = {
+      title,
+      audioPath: selectedAudioPath,
+      bgPath: selectedBgPath,
+      bgVideoPath: selectedBgVideoPath,
+      color,
+      text: useImage ? '' : text,
+      logoPath: useImage ? selectedLogoPath : null,
+      status: 'pending' // Resetear a pending cuando se edita
+    };
+
+    // Actualizar en la base de datos
+    const updatedVideo = await window.electronAPI.updateVideo(editingVideoId, updatedData);
+
+    // Actualizar el array local sin cambiar el orden
+    if (updatedVideo) {
+      const index = videos.findIndex(v => v.id === editingVideoId);
+      if (index !== -1) {
+        videos[index] = updatedVideo;
+      }
+    }
+
+    renderTable();
+    closeNewVideoModal();
+    showToast('success', 'Video actualizado', `"${title}" actualizado exitosamente`);
+    return;
+  }
+
+  // Crear nuevo video
   const videoData = {
     title,
     audioPath: selectedAudioPath,
@@ -644,6 +693,89 @@ async function handleOpenFolder(id) {
   document.querySelectorAll('.actions-menu').forEach(m => m.classList.remove('show'));
 
   await window.electronAPI.openVideoFolder(video.outputPath);
+}
+
+async function handleEdit(id) {
+  const video = videos.find(v => v.id === id);
+  if (!video) return;
+
+  // Cerrar menú
+  document.querySelectorAll('.actions-menu').forEach(m => m.classList.remove('show'));
+
+  // Establecer el ID de edición
+  editingVideoId = id;
+
+  // Prellenar el formulario con los datos del video
+  document.getElementById('videoTitle').value = video.title;
+  document.getElementById('videoColor').value = video.color;
+  document.getElementById('videoText').value = video.text || '';
+
+  // Configurar audio
+  selectedAudioPath = video.audioPath;
+  const audioFileName = video.audioPath.split(/[\\/]/).pop();
+  document.getElementById('audioFileName').textContent = audioFileName;
+  document.getElementById('audioFileBtn').classList.add('selected');
+
+  // Configurar fondo
+  if (video.bgVideoPath) {
+    selectedBgVideoPath = video.bgVideoPath;
+    const videoFileName = video.bgVideoPath.split(/[\\/]/).pop();
+    document.getElementById('bgVideoName').textContent = videoFileName;
+    document.getElementById('bgVideoBtn').classList.add('selected');
+    document.getElementById('bgTypeVideo').checked = true;
+    toggleBgType();
+  } else if (video.bgPath) {
+    selectedBgPath = video.bgPath;
+    const bgFileName = video.bgPath.split(/[\\/]/).pop();
+    document.getElementById('bgFileName').textContent = bgFileName;
+    document.getElementById('bgFileBtn').classList.add('selected');
+    document.getElementById('bgTypeImage').checked = true;
+    toggleBgType();
+  }
+
+  // Configurar logo/contenido
+  if (video.logoPath) {
+    selectedLogoPath = video.logoPath;
+    const logoFileName = video.logoPath.split(/[\\/]/).pop();
+    document.getElementById('logoFileName').textContent = logoFileName;
+    document.getElementById('logoFileBtn').classList.add('selected');
+    document.getElementById('contentTypeImage').checked = true;
+    toggleContentType();
+  } else {
+    document.getElementById('contentTypeText').checked = true;
+    toggleContentType();
+  }
+
+  // Cambiar el texto del botón
+  const createBtn = document.getElementById('createVideoBtn');
+  createBtn.textContent = 'Actualizar';
+
+  // Abrir modal
+  document.getElementById('newVideoModal').classList.add('show');
+}
+
+async function handleDuplicate(id) {
+  const video = videos.find(v => v.id === id);
+  if (!video) return;
+
+  // Cerrar menú
+  document.querySelectorAll('.actions-menu').forEach(m => m.classList.remove('show'));
+
+  // Crear una copia del video con un nuevo ID
+  const duplicatedVideo = {
+    title: `${video.title} (Copia)`,
+    audioPath: video.audioPath,
+    bgPath: video.bgPath || null,
+    bgVideoPath: video.bgVideoPath || null,
+    logoPath: video.logoPath || null,
+    color: video.color,
+    text: video.text
+  };
+
+  const newVideo = await window.electronAPI.createVideo(duplicatedVideo);
+  videos.unshift(newVideo);
+  renderTable();
+  showToast('success', 'Video duplicado', `"${duplicatedVideo.title}" creado exitosamente`);
 }
 
 async function handleDelete(id) {

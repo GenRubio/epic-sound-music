@@ -5,7 +5,9 @@
       "Bash(npm start)",
       "Bash(node -e:*)",
       "Bash(npx electron .)",
-      "Bash(node node_modules/electron/install.js:*)"
+      "Bash(node node_modules/electron/install.js:*)",
+      "Bash(npm run build:*)",
+      "Bash(dir:*)"
     ],
     "deny": [],
     "ask": []

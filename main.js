@@ -18,8 +18,7 @@ function createWindow() {
       sandbox: false, // Necesario para acceder a módulos de Node en preload
       preload: path.join(__dirname, 'preload.js')
     },
-    backgroundColor: '#0b0f1a',
-    icon: path.join(__dirname, 'icon.png')
+    backgroundColor: '#0b0f1a'
   });
 
   mainWindow.loadFile('index.html');

@@ -293,7 +293,7 @@ ipcMain.handle('get-outputs-dir', () => {
 // Cargar settings
 function loadSettings() {
   if (!fs.existsSync(settingsPath)) {
-    const defaultSettings = { geminiApiKey: '' };
+    const defaultSettings = { geminiApiKey: '', defaultLogoPath: null };
     fs.writeFileSync(settingsPath, JSON.stringify(defaultSettings, null, 2));
     return defaultSettings;
   }

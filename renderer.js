@@ -4,6 +4,7 @@ let selectedAudioPath = null;
 let selectedBgPath = null;
 let selectedBgVideoPath = null;
 let selectedLogoPath = null;
+let selectedDefaultLogoPath = null; // Logo por defecto de settings
 let currentGeneratingIds = new Set(); // Permite múltiples generaciones
 let editingVideoId = null; // ID del video que se está editando
 
@@ -27,6 +28,12 @@ async function loadSettings() {
   const settings = await window.electronAPI.getSettings();
   if (settings.geminiApiKey) {
     document.getElementById('geminiApiKey').value = settings.geminiApiKey;
+  }
+  if (settings.defaultLogoPath) {
+    selectedDefaultLogoPath = settings.defaultLogoPath;
+    const fileName = settings.defaultLogoPath.split(/[\\/]/).pop();
+    document.getElementById('defaultLogoFileName').textContent = fileName;
+    document.getElementById('defaultLogoBtn').classList.add('selected');
   }
 }
 
@@ -184,6 +191,7 @@ function initEventListeners() {
   document.getElementById('closeSettingsBtn').addEventListener('click', closeSettingsModal);
   document.getElementById('cancelSettingsBtn').addEventListener('click', closeSettingsModal);
   document.getElementById('saveSettingsBtn').addEventListener('click', handleSaveSettings);
+  document.getElementById('defaultLogoBtn').addEventListener('click', selectDefaultLogo);
 
   // Cerrar modal al hacer clic fuera
   document.getElementById('newVideoModal').addEventListener('click', (e) => {
@@ -284,12 +292,25 @@ function closeSettingsModal() {
   document.getElementById('settingsModal').classList.remove('show');
 }
 
+async function selectDefaultLogo() {
+  const filePath = await window.electronAPI.selectBgFile();
+  if (filePath) {
+    selectedDefaultLogoPath = filePath;
+    const fileName = filePath.split(/[\\/]/).pop();
+    document.getElementById('defaultLogoFileName').textContent = fileName;
+    document.getElementById('defaultLogoBtn').classList.add('selected');
+  }
+}
+
 async function handleSaveSettings() {
   const apiKey = document.getElementById('geminiApiKey').value.trim();
 
   try {
-    await window.electronAPI.saveSettings({ geminiApiKey: apiKey });
-    showToast('success', 'Settings saved', 'Gemini API key saved successfully');
+    await window.electronAPI.saveSettings({
+      geminiApiKey: apiKey,
+      defaultLogoPath: selectedDefaultLogoPath || null
+    });
+    showToast('success', 'Settings saved', 'Settings guardados exitosamente');
     closeSettingsModal();
   } catch (error) {
     showToast('error', 'Error', 'Failed to save settings: ' + error.message);
@@ -387,7 +408,7 @@ async function selectLogo() {
 async function handleCreateVideo() {
   const title = document.getElementById('videoTitle').value.trim();
   const color = document.getElementById('videoColor').value;
-  const text = document.getElementById('videoText').value;
+  const text = document.getElementById('videoText').value.trim();
   const useImage = document.getElementById('contentTypeImage').checked;
   const sunoLyrics = document.getElementById('sunoLyrics').value.trim();
   const sunoStyles = document.getElementById('sunoStyles').value.trim();
@@ -400,6 +421,18 @@ async function handleCreateVideo() {
   if (!selectedAudioPath) {
     showToast('error', 'Error', 'Por favor selecciona un archivo de audio');
     return;
+  }
+
+  // Determinar el logoPath a usar
+  let finalLogoPath = null;
+  if (useImage) {
+    // Si está en modo imagen, usar la imagen seleccionada
+    finalLogoPath = selectedLogoPath;
+  } else {
+    // Si está en modo texto pero no hay texto, usar el logo por defecto de settings
+    if (!text && selectedDefaultLogoPath) {
+      finalLogoPath = selectedDefaultLogoPath;
+    }
   }
 
   // Generar metadatos de YouTube si hay lyrics o styles (al menos uno)
@@ -429,7 +462,7 @@ async function handleCreateVideo() {
       bgVideoPath: selectedBgVideoPath,
       color,
       text: useImage ? '' : text,
-      logoPath: useImage ? selectedLogoPath : null,
+      logoPath: finalLogoPath,
       sunoLyrics,
       sunoStyles,
       status: 'pending' // Resetear a pending cuando se edita
@@ -466,8 +499,8 @@ async function handleCreateVideo() {
     bgPath: selectedBgPath,
     bgVideoPath: selectedBgVideoPath,
     color,
-    text: useImage ? '' : text,
-    logoPath: useImage ? selectedLogoPath : null,
+    text: text,
+    logoPath: finalLogoPath,
     sunoLyrics,
     sunoStyles
   };

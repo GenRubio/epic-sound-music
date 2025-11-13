@@ -173,6 +173,9 @@ function initEventListeners() {
   document.getElementById('bgVideoBtn').addEventListener('click', selectBgVideo);
   document.getElementById('logoFileBtn').addEventListener('click', selectLogo);
 
+  // Suno data extraction
+  document.getElementById('getSunoDataBtn').addEventListener('click', handleGetSunoData);
+
   // Switch entre texto e imagen
   document.getElementById('contentTypeText').addEventListener('change', toggleContentType);
   document.getElementById('contentTypeImage').addEventListener('change', toggleContentType);
@@ -402,6 +405,61 @@ async function selectLogo() {
     const fileName = filePath.split(/[\\/]/).pop();
     document.getElementById('logoFileName').textContent = fileName;
     document.getElementById('logoFileBtn').classList.add('selected');
+  }
+}
+
+async function handleGetSunoData() {
+  const sunoUrl = document.getElementById('sunoUrl').value.trim();
+
+  if (!sunoUrl) {
+    showToast('error', 'Error', 'Por favor ingresa una URL de Suno');
+    return;
+  }
+
+  // Validar que sea una URL de Suno
+  if (!sunoUrl.includes('suno.com')) {
+    showToast('error', 'Error', 'La URL debe ser de suno.com');
+    return;
+  }
+
+  const btn = document.getElementById('getSunoDataBtn');
+  const originalContent = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Obteniendo datos...';
+
+  try {
+    showToast('info', 'Extrayendo datos', 'Obteniendo información de Suno...', false);
+
+    const data = await window.electronAPI.getSunoData(sunoUrl);
+
+    // Cerrar toast de carga
+    document.querySelectorAll('.toast').forEach(t => t.remove());
+
+    // Rellenar campos con los datos obtenidos
+    if (data.lyrics) {
+      document.getElementById('sunoLyrics').value = data.lyrics;
+    }
+
+    if (data.styles) {
+      document.getElementById('sunoStyles').value = data.styles;
+    }
+
+    if (data.title) {
+      // Si el campo de título está vacío, usar el título de Suno
+      const titleInput = document.getElementById('videoTitle');
+      if (!titleInput.value.trim()) {
+        titleInput.value = data.title;
+      }
+    }
+
+    showToast('success', 'Datos obtenidos', 'Lyrics y styles extraídos. Descarga el MP3 manualmente desde Suno y selecciónalo en "Audio"');
+  } catch (error) {
+    console.error('Error getting Suno data:', error);
+    document.querySelectorAll('.toast').forEach(t => t.remove());
+    showToast('error', 'Error', error.message || 'Error obteniendo datos de Suno');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = originalContent;
   }
 }
 

@@ -1,6 +1,8 @@
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const https = require('https');
+const zlib = require('zlib');
 const ffmpeg = require('fluent-ffmpeg');
 const ffmpegPath = require('@ffmpeg-installer/ffmpeg').path;
 
@@ -475,3 +477,365 @@ ipcMain.handle('analyze-audio-ffmpeg', async (event, options) => {
     });
   });
 });
+
+// ========== EXTRACCIÓN DE DATOS DE SUNO ==========
+ipcMain.handle('get-suno-data', async (event, sunoUrl) => {
+  try {
+    console.log('[get-suno-data] Fetching URL:', sunoUrl);
+
+    // Obtener el HTML de la página (esto también maneja redirecciones)
+    const { html, finalUrl } = await fetchUrlWithRedirect(sunoUrl);
+
+    // Extraer el ID de la canción - primero de la URL final
+    let songId = null;
+
+    // Intentar extraer del finalUrl primero
+    console.log('[get-suno-data] Final URL:', finalUrl);
+    const urlIdMatch = finalUrl.match(/\/song\/([a-f0-9-]+)/i);
+    if (urlIdMatch) {
+      songId = urlIdMatch[1];
+      console.log('[get-suno-data] Song ID from URL:', songId);
+    }
+
+    // Si no se encontró en URL, buscar en el HTML
+    if (!songId) {
+      console.log('[get-suno-data] Could not extract song ID from URL, trying HTML...');
+      const canonicalMatch = html.match(/<link rel="canonical" href="https:\/\/suno\.com\/song\/([a-f0-9-]+)/i);
+      if (canonicalMatch) {
+        songId = canonicalMatch[1];
+      } else {
+        // Buscar en meta tags
+        const ogUrlMatch = html.match(/<meta property="og:url" content="https:\/\/suno\.com\/song\/([a-f0-9-]+)/i);
+        if (ogUrlMatch) {
+          songId = ogUrlMatch[1];
+        } else {
+          // Buscar en el HTML completo por cualquier mención del ID
+          const htmlIdMatch = html.match(/\/song\/([a-f0-9-]{36})/i);
+          if (htmlIdMatch) {
+            songId = htmlIdMatch[1];
+          }
+        }
+      }
+    }
+
+    if (!songId) {
+      throw new Error('No se pudo extraer el ID de la canción. Verifica que la URL sea correcta.');
+    }
+
+    console.log('[get-suno-data] Song ID:', songId);
+
+    // Extraer datos de los scripts self.__next_f.push() (Next.js App Router)
+    let title = 'Unknown';
+    let lyrics = '';
+    let styles = '';
+
+    try {
+      // Buscar todos los scripts que contienen self.__next_f.push
+      const nextFScripts = html.match(/<script>self\.__next_f\.push\(\[1,"([^"]+)"\]\)<\/script>/g);
+
+      if (nextFScripts) {
+        console.log('[get-suno-data] Found', nextFScripts.length, 'self.__next_f.push scripts');
+
+        // Combinar todo el contenido
+        let combinedData = '';
+        nextFScripts.forEach(script => {
+          const match = script.match(/self\.__next_f\.push\(\[1,"([^"]+)"\]\)/);
+          if (match && match[1]) {
+            // Decodificar escapes
+            let decoded = match[1]
+              .replace(/\\"/g, '"')
+              .replace(/\\n/g, '\n')
+              .replace(/\\t/g, '\t')
+              .replace(/\\\\/g, '\\');
+            combinedData += decoded + ' ';
+          }
+        });
+
+        console.log('[get-suno-data] Combined data length:', combinedData.length);
+
+        // Extraer título del meta tag
+        const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/);
+        if (titleMatch) {
+          title = titleMatch[1].replace(' | Suno', '').trim();
+          console.log('[get-suno-data] Title extracted:', title);
+        }
+
+        // Buscar lyrics en el texto combinado - buscar patrones de verso/coro
+        const lyricsPatterns = [
+          /\(Verse \d+\)[^\(]*(?:\((?:Chorus|Pre-Chorus|Bridge|Outro)[^\(]*\))*/gi,
+          /\[Verse \d+\][^\[]*(?:\[(?:Chorus|Pre-Chorus|Bridge|Outro)[^\[]*\])*/gi
+        ];
+
+        for (const pattern of lyricsPatterns) {
+          const matches = combinedData.match(pattern);
+          if (matches && matches.length > 0) {
+            lyrics = matches.join('\n\n').trim();
+            // Limpiar caracteres especiales de codificación
+            lyrics = lyrics.replace(/Ô[ÇÉ][ÖÜ]/g, "'");
+            console.log('[get-suno-data] Lyrics extracted, length:', lyrics.length);
+            break;
+          }
+        }
+
+        // Buscar styles/tags - buscar después de "tags" o "gn_tags"
+        const stylePatterns = [
+          /"tags":"([^"]+)"/,
+          /"gn_tags":"([^"]+)"/,
+          /"metadata_tags":"([^"]+)"/
+        ];
+
+        for (const pattern of stylePatterns) {
+          const match = combinedData.match(pattern);
+          if (match && match[1]) {
+            styles = match[1];
+            console.log('[get-suno-data] Styles extracted:', styles);
+            break;
+          }
+        }
+
+        // Si no encontramos lyrics con los patrones, buscar texto largo que parezca letra
+        if (!lyrics) {
+          // Buscar bloques de texto con saltos de línea que parezcan letras
+          const textBlocks = combinedData.match(/[A-Z][^\n]{20,}(?:\n[^\n]{20,}){3,}/g);
+          if (textBlocks && textBlocks.length > 0) {
+            lyrics = textBlocks[0].trim().substring(0, 2000);
+            console.log('[get-suno-data] Lyrics extracted from text block, length:', lyrics.length);
+          }
+        }
+
+      } else {
+        console.log('[get-suno-data] No self.__next_f.push scripts found');
+      }
+
+    } catch (e) {
+      console.log('[get-suno-data] Error extracting data:', e.message);
+    }
+
+    console.log('[get-suno-data] Data extracted:', {
+      title,
+      hasLyrics: !!lyrics,
+      hasStyles: !!styles
+    });
+
+    // Retornar solo lyrics y styles - el usuario descargará el MP3 manualmente
+    return {
+      title,
+      lyrics,
+      styles
+    };
+  } catch (error) {
+    console.error('[get-suno-data] Error:', error);
+    throw new Error(`Error extrayendo datos de Suno: ${error.message}`);
+  }
+});
+
+// Función auxiliar para hacer fetch de una URL y retornar también la URL final
+function fetchUrlWithRedirect(url, baseUrl = null, finalUrl = null) {
+  return new Promise((resolve, reject) => {
+    // Si la URL es relativa, construir URL completa
+    let fullUrl = url;
+    if (url.startsWith('/')) {
+      if (!baseUrl) {
+        baseUrl = 'https://suno.com';
+      }
+      fullUrl = baseUrl + url;
+      console.log('[fetchUrlWithRedirect] Converting relative URL to:', fullUrl);
+    }
+
+    // Track final URL
+    if (!finalUrl) {
+      finalUrl = fullUrl;
+    }
+
+    const urlModule = fullUrl.startsWith('https:') ? https : require('http');
+
+    urlModule.get(fullUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1'
+      }
+    }, (res) => {
+      // Manejar todas las redirecciones (301, 302, 303, 307, 308)
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        console.log(`[fetchUrlWithRedirect] Redirect ${res.statusCode} to:`, res.headers.location);
+
+        // Extraer base URL para redirecciones relativas
+        const urlParts = fullUrl.match(/^(https?:\/\/[^\/]+)/);
+        const newBaseUrl = urlParts ? urlParts[1] : 'https://suno.com';
+
+        // Construir nueva URL final
+        const newFinalUrl = res.headers.location.startsWith('http')
+          ? res.headers.location
+          : newBaseUrl + res.headers.location;
+
+        return fetchUrlWithRedirect(res.headers.location, newBaseUrl, newFinalUrl).then(resolve).catch(reject);
+      }
+
+      if (res.statusCode !== 200) {
+        reject(new Error(`HTTP ${res.statusCode}: ${res.statusMessage}`));
+        return;
+      }
+
+      // Manejar descompresión GZIP/deflate
+      let stream = res;
+      const encoding = res.headers['content-encoding'];
+
+      if (encoding === 'gzip') {
+        stream = res.pipe(zlib.createGunzip());
+      } else if (encoding === 'deflate') {
+        stream = res.pipe(zlib.createInflate());
+      } else if (encoding === 'br') {
+        stream = res.pipe(zlib.createBrotliDecompress());
+      }
+
+      let data = '';
+      stream.setEncoding('utf8');
+
+      stream.on('data', (chunk) => {
+        data += chunk;
+      });
+
+      stream.on('end', () => {
+        resolve({ html: data, finalUrl });
+      });
+
+      stream.on('error', (err) => {
+        reject(err);
+      });
+    }).on('error', (err) => {
+      reject(err);
+    });
+  });
+}
+
+// Función auxiliar para hacer fetch de una URL (backward compatibility)
+function fetchUrl(url, baseUrl = null) {
+  return new Promise((resolve, reject) => {
+    // Si la URL es relativa, construir URL completa
+    let fullUrl = url;
+    if (url.startsWith('/')) {
+      if (!baseUrl) {
+        baseUrl = 'https://suno.com';
+      }
+      fullUrl = baseUrl + url;
+      console.log('[fetchUrl] Converting relative URL to:', fullUrl);
+    }
+
+    const urlModule = fullUrl.startsWith('https:') ? https : require('http');
+
+    urlModule.get(fullUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1'
+      }
+    }, (res) => {
+      let data = '';
+
+      // Manejar todas las redirecciones (301, 302, 303, 307, 308)
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        console.log(`[fetchUrl] Redirect ${res.statusCode} to:`, res.headers.location);
+
+        // Extraer base URL para redirecciones relativas
+        const urlParts = fullUrl.match(/^(https?:\/\/[^\/]+)/);
+        const newBaseUrl = urlParts ? urlParts[1] : 'https://suno.com';
+
+        return fetchUrl(res.headers.location, newBaseUrl).then(resolve).catch(reject);
+      }
+
+      if (res.statusCode !== 200) {
+        reject(new Error(`HTTP ${res.statusCode}: ${res.statusMessage}`));
+        return;
+      }
+
+      res.on('data', (chunk) => {
+        data += chunk;
+      });
+
+      res.on('end', () => {
+        resolve(data);
+      });
+    }).on('error', (err) => {
+      reject(err);
+    });
+  });
+}
+
+// Función auxiliar para descargar audio
+function downloadAudio(audioUrl, title, baseUrl = null) {
+  return new Promise((resolve, reject) => {
+    // Crear directorio de audios descargados si no existe
+    const audiosDir = path.join(__dirname, 'suno_audios');
+    if (!fs.existsSync(audiosDir)) {
+      fs.mkdirSync(audiosDir, { recursive: true });
+    }
+
+    // Sanitizar nombre de archivo
+    const sanitizedTitle = title.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+    const timestamp = Date.now();
+    const filename = `${sanitizedTitle}_${timestamp}.mp3`;
+    const filepath = path.join(audiosDir, filename);
+
+    console.log('[downloadAudio] Downloading to:', filepath);
+
+    // Si la URL es relativa, construir URL completa
+    let fullUrl = audioUrl;
+    if (audioUrl.startsWith('/')) {
+      if (!baseUrl) {
+        baseUrl = 'https://suno.com';
+      }
+      fullUrl = baseUrl + audioUrl;
+      console.log('[downloadAudio] Converting relative URL to:', fullUrl);
+    }
+
+    const file = fs.createWriteStream(filepath);
+    const urlModule = fullUrl.startsWith('https:') ? https : require('http');
+
+    urlModule.get(fullUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      }
+    }, (res) => {
+      // Manejar todas las redirecciones (301, 302, 303, 307, 308)
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        console.log(`[downloadAudio] Redirect ${res.statusCode} to:`, res.headers.location);
+        file.close();
+        fs.unlinkSync(filepath);
+
+        // Extraer base URL para redirecciones relativas
+        const urlParts = fullUrl.match(/^(https?:\/\/[^\/]+)/);
+        const newBaseUrl = urlParts ? urlParts[1] : 'https://suno.com';
+
+        return downloadAudio(res.headers.location, title, newBaseUrl).then(resolve).catch(reject);
+      }
+
+      if (res.statusCode !== 200) {
+        file.close();
+        fs.unlinkSync(filepath);
+        reject(new Error(`HTTP ${res.statusCode}: ${res.statusMessage}`));
+        return;
+      }
+
+      res.pipe(file);
+
+      file.on('finish', () => {
+        file.close();
+        console.log('[downloadAudio] Download complete');
+        resolve(filepath);
+      });
+    }).on('error', (err) => {
+      file.close();
+      if (fs.existsSync(filepath)) {
+        fs.unlinkSync(filepath);
+      }
+      reject(err);
+    });
+  });
+}

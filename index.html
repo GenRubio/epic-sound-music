@@ -594,6 +594,19 @@ td {
         </div>
 
         <div class="form-group">
+          <label>Suno URL</label>
+          <div style="display: flex; gap: 12px;">
+            <input type="text" id="sunoUrl" placeholder="https://suno.com/song/..." style="flex: 1;">
+            <button type="button" class="btn" id="getSunoDataBtn" style="white-space: nowrap;">
+              <span>📥</span> Get Data
+            </button>
+          </div>
+          <p style="font-size: 12px; color: var(--text-muted); margin-top: 8px;">
+            Pega la URL de compartir de Suno para obtener automáticamente lyrics, styles y audio
+          </p>
+        </div>
+
+        <div class="form-group">
           <label>Suno Lyrics</label>
           <textarea id="sunoLyrics" placeholder="Enter the song lyrics here..." rows="4"></textarea>
         </div>

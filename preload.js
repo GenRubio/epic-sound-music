@@ -44,5 +44,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
 
   // YouTube metadata generation
-  generateYoutubeMetadata: (data) => ipcRenderer.invoke('generate-youtube-metadata', data)
+  generateYoutubeMetadata: (data) => ipcRenderer.invoke('generate-youtube-metadata', data),
+
+  // Suno data extraction
+  getSunoData: (url) => ipcRenderer.invoke('get-suno-data', url)
 });

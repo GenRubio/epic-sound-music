@@ -3,10 +3,22 @@ let videos = [];
 let selectedAudioPath = null;
 let selectedBgPath = null;
 let selectedBgVideoPath = null;
+let selectedBgMobilePath = null;
+let selectedBgMobileVideoPath = null;
 let selectedLogoPath = null;
 let selectedDefaultLogoPath = null; // Logo por defecto de settings
 let currentGeneratingIds = new Set(); // Permite múltiples generaciones
 let editingVideoId = null; // ID del video que se está editando
+
+// Timeline trimmer
+let audioDuration = 0;
+let trimStart = 0;
+let trimEnd = 0;
+let isDragging = false;
+let dragType = null; // 'left', 'right', 'selection'
+let dragStartX = 0;
+let dragStartLeft = 0;
+let dragStartRight = 0;
 
 // Estado para preview animado
 let previewPlaying = false;
@@ -16,11 +28,32 @@ let previewAudio = null;
 let previewBassLevels = null;
 let previewStartTime = 0;
 
+// Estado para preview móvil animado
+let previewMobilePlaying = false;
+let previewMobileAnimationId = null;
+let previewMobileVideoData = null;
+let previewMobileAudio = null;
+let previewMobileBassLevels = null;
+let previewMobileFullBassLevels = null; // Basslevels completos sin recortar
+let previewMobileStartTime = 0;
+let previewMobileTrimStart = 0;
+let previewMobileTrimEnd = 0;
+let previewMobileAudioDuration = 0;
+
+// Timeline trimmer para modal móvil
+let isDraggingMobile = false;
+let dragTypeMobile = null; // 'left', 'right', 'selection'
+let dragStartXMobile = 0;
+let dragStartLeftMobile = 0;
+let dragStartRightMobile = 0;
+
 // ==================== INICIALIZACIÓN ====================
 document.addEventListener('DOMContentLoaded', async () => {
   await loadVideos();
   await loadSettings();
   initEventListeners();
+  initTimelineTrimmer();
+  initTimelineTrimmerMobile();
 });
 
 // ==================== SETTINGS ====================
@@ -130,6 +163,9 @@ function getActionsHTML(video) {
     <button type="button" data-action="preview" data-id="${video.id}" ${isGenerating ? 'disabled' : ''}>
       <span>👁️</span> Preview
     </button>
+    <button type="button" data-action="preview-mobile" data-id="${video.id}" ${isGenerating ? 'disabled' : ''}>
+      <span>📱</span> Preview mobile
+    </button>
     <button type="button" data-action="generate" data-id="${video.id}" ${isGenerating || isCompleted ? 'disabled' : ''}>
       <span>🎬</span> Generate
     </button>
@@ -171,10 +207,9 @@ function initEventListeners() {
   document.getElementById('audioFileBtn').addEventListener('click', selectAudio);
   document.getElementById('bgFileBtn').addEventListener('click', selectBg);
   document.getElementById('bgVideoBtn').addEventListener('click', selectBgVideo);
+  document.getElementById('bgMobileFileBtn').addEventListener('click', selectBgMobile);
+  document.getElementById('bgMobileVideoBtn').addEventListener('click', selectBgMobileVideo);
   document.getElementById('logoFileBtn').addEventListener('click', selectLogo);
-
-  // Suno data extraction
-  document.getElementById('getSunoDataBtn').addEventListener('click', handleGetSunoData);
 
   // Switch entre texto e imagen
   document.getElementById('contentTypeText').addEventListener('change', toggleContentType);
@@ -184,10 +219,18 @@ function initEventListeners() {
   document.getElementById('bgTypeImage').addEventListener('change', toggleBgType);
   document.getElementById('bgTypeVideo').addEventListener('change', toggleBgType);
 
+  // Switch entre imagen y video de fondo móvil
+  document.getElementById('bgMobileTypeImage').addEventListener('change', toggleBgMobileType);
+  document.getElementById('bgMobileTypeVideo').addEventListener('change', toggleBgMobileType);
+
   // Preview modal
   document.getElementById('closePreviewBtn').addEventListener('click', closePreviewModal);
   document.getElementById('playPreviewBtn').addEventListener('click', togglePreviewPlayback);
   document.getElementById('regenerateMetadataBtn').addEventListener('click', handleRegenerateMetadata);
+
+  // Preview mobile modal
+  document.getElementById('closePreviewMobileBtn').addEventListener('click', closePreviewMobileModal);
+  document.getElementById('playPreviewMobileBtn').addEventListener('click', togglePreviewMobilePlayback);
 
   // Settings modal
   document.getElementById('settingsBtn').addEventListener('click', openSettingsModal);
@@ -202,6 +245,9 @@ function initEventListeners() {
   });
   document.getElementById('previewModal').addEventListener('click', (e) => {
     if (e.target.id === 'previewModal') closePreviewModal();
+  });
+  document.getElementById('previewMobileModal').addEventListener('click', (e) => {
+    if (e.target.id === 'previewMobileModal') closePreviewMobileModal();
   });
   document.getElementById('settingsModal').addEventListener('click', (e) => {
     if (e.target.id === 'settingsModal') closeSettingsModal();
@@ -259,6 +305,9 @@ function initEventListeners() {
       switch(action) {
         case 'preview':
           await handlePreview(id);
+          break;
+        case 'preview-mobile':
+          await handlePreviewMobile(id);
           break;
         case 'generate':
           await handleGenerate(id);
@@ -341,19 +390,33 @@ function resetForm() {
   selectedAudioPath = null;
   selectedBgPath = null;
   selectedBgVideoPath = null;
+  selectedBgMobilePath = null;
+  selectedBgMobileVideoPath = null;
   selectedLogoPath = null;
   document.getElementById('audioFileName').textContent = 'Seleccionar archivo de audio...';
   document.getElementById('bgFileName').textContent = 'Seleccionar imagen (opcional)';
   document.getElementById('bgVideoName').textContent = 'Seleccionar video (opcional)';
+  document.getElementById('bgMobileFileName').textContent = 'Seleccionar imagen 9:16 (opcional)';
+  document.getElementById('bgMobileVideoName').textContent = 'Seleccionar video 9:16 (opcional)';
   document.getElementById('logoFileName').textContent = 'Seleccionar imagen para logo...';
   document.getElementById('audioFileBtn').classList.remove('selected');
   document.getElementById('bgFileBtn').classList.remove('selected');
   document.getElementById('bgVideoBtn').classList.remove('selected');
+  document.getElementById('bgMobileFileBtn').classList.remove('selected');
+  document.getElementById('bgMobileVideoBtn').classList.remove('selected');
   document.getElementById('logoFileBtn').classList.remove('selected');
   document.getElementById('contentTypeText').checked = true;
   document.getElementById('bgTypeImage').checked = true;
+  document.getElementById('bgMobileTypeImage').checked = true;
   toggleContentType();
   toggleBgType();
+  toggleBgMobileType();
+
+  // Resetear timeline trimmer
+  audioDuration = 0;
+  trimStart = 0;
+  trimEnd = 0;
+  document.getElementById('timelineTrimmer').style.display = 'none';
 }
 
 function toggleContentType() {
@@ -368,6 +431,12 @@ function toggleBgType() {
   document.getElementById('bgVideoContent').style.display = imageSelected ? 'none' : 'block';
 }
 
+function toggleBgMobileType() {
+  const imageSelected = document.getElementById('bgMobileTypeImage').checked;
+  document.getElementById('bgMobileImageContent').style.display = imageSelected ? 'block' : 'none';
+  document.getElementById('bgMobileVideoContent').style.display = imageSelected ? 'none' : 'block';
+}
+
 async function selectAudio() {
   const filePath = await window.electronAPI.selectAudioFile();
   if (filePath) {
@@ -375,6 +444,43 @@ async function selectAudio() {
     const fileName = filePath.split(/[\\/]/).pop();
     document.getElementById('audioFileName').textContent = fileName;
     document.getElementById('audioFileBtn').classList.add('selected');
+
+    // Cargar audio para obtener duración y mostrar timeline trimmer
+    await loadAudioForTrimmer(filePath);
+  }
+}
+
+async function loadAudioForTrimmer(audioPath) {
+  try {
+    const audioSrc = 'file:///' + audioPath.replace(/\\/g, '/');
+    const response = await fetch(audioSrc);
+    const arrayBuffer = await response.arrayBuffer();
+
+    const audio = new Audio();
+    const blob = new Blob([arrayBuffer], { type: 'audio/mpeg' });
+    const blobUrl = URL.createObjectURL(blob);
+    audio.src = blobUrl;
+
+    await new Promise((resolve, reject) => {
+      audio.addEventListener('loadedmetadata', () => {
+        audioDuration = audio.duration;
+        trimStart = 0;
+        trimEnd = audioDuration;
+
+        // Mostrar timeline trimmer
+        document.getElementById('timelineTrimmer').style.display = 'block';
+
+        // Actualizar UI
+        updateTimelineUI();
+
+        // Limpiar
+        URL.revokeObjectURL(blobUrl);
+        resolve();
+      });
+      audio.addEventListener('error', reject);
+    });
+  } catch (error) {
+    console.error('Error loading audio for trimmer:', error);
   }
 }
 
@@ -408,58 +514,23 @@ async function selectLogo() {
   }
 }
 
-async function handleGetSunoData() {
-  const sunoUrl = document.getElementById('sunoUrl').value.trim();
-
-  if (!sunoUrl) {
-    showToast('error', 'Error', 'Por favor ingresa una URL de Suno');
-    return;
+async function selectBgMobile() {
+  const filePath = await window.electronAPI.selectBgFile();
+  if (filePath) {
+    selectedBgMobilePath = filePath;
+    const fileName = filePath.split(/[\\/]/).pop();
+    document.getElementById('bgMobileFileName').textContent = fileName;
+    document.getElementById('bgMobileFileBtn').classList.add('selected');
   }
+}
 
-  // Validar que sea una URL de Suno
-  if (!sunoUrl.includes('suno.com')) {
-    showToast('error', 'Error', 'La URL debe ser de suno.com');
-    return;
-  }
-
-  const btn = document.getElementById('getSunoDataBtn');
-  const originalContent = btn.innerHTML;
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span> Obteniendo datos...';
-
-  try {
-    showToast('info', 'Extrayendo datos', 'Obteniendo información de Suno...', false);
-
-    const data = await window.electronAPI.getSunoData(sunoUrl);
-
-    // Cerrar toast de carga
-    document.querySelectorAll('.toast').forEach(t => t.remove());
-
-    // Rellenar campos con los datos obtenidos
-    if (data.lyrics) {
-      document.getElementById('sunoLyrics').value = data.lyrics;
-    }
-
-    if (data.styles) {
-      document.getElementById('sunoStyles').value = data.styles;
-    }
-
-    if (data.title) {
-      // Si el campo de título está vacío, usar el título de Suno
-      const titleInput = document.getElementById('videoTitle');
-      if (!titleInput.value.trim()) {
-        titleInput.value = data.title;
-      }
-    }
-
-    showToast('success', 'Datos obtenidos', 'Lyrics y styles extraídos. Descarga el MP3 manualmente desde Suno y selecciónalo en "Audio"');
-  } catch (error) {
-    console.error('Error getting Suno data:', error);
-    document.querySelectorAll('.toast').forEach(t => t.remove());
-    showToast('error', 'Error', error.message || 'Error obteniendo datos de Suno');
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = originalContent;
+async function selectBgMobileVideo() {
+  const filePath = await window.electronAPI.selectBgVideo();
+  if (filePath) {
+    selectedBgMobileVideoPath = filePath;
+    const fileName = filePath.split(/[\\/]/).pop();
+    document.getElementById('bgMobileVideoName').textContent = fileName;
+    document.getElementById('bgMobileVideoBtn').classList.add('selected');
   }
 }
 
@@ -518,11 +589,15 @@ async function handleCreateVideo() {
       audioPath: selectedAudioPath,
       bgPath: selectedBgPath,
       bgVideoPath: selectedBgVideoPath,
+      bgMobilePath: selectedBgMobilePath,
+      bgMobileVideoPath: selectedBgMobileVideoPath,
       color,
       text: useImage ? '' : text,
       logoPath: finalLogoPath,
       sunoLyrics,
       sunoStyles,
+      trimStart: trimStart,
+      trimEnd: trimEnd,
       status: 'pending' // Resetear a pending cuando se edita
     };
 
@@ -556,11 +631,15 @@ async function handleCreateVideo() {
     audioPath: selectedAudioPath,
     bgPath: selectedBgPath,
     bgVideoPath: selectedBgVideoPath,
+    bgMobilePath: selectedBgMobilePath,
+    bgMobileVideoPath: selectedBgMobileVideoPath,
     color,
     text: text,
     logoPath: finalLogoPath,
     sunoLyrics,
-    sunoStyles
+    sunoStyles,
+    trimStart: trimStart,
+    trimEnd: trimEnd
   };
 
   // Añadir metadatos si fueron generados
@@ -575,6 +654,265 @@ async function handleCreateVideo() {
   renderTable();
   closeNewVideoModal();
   showToast('success', 'Video creado', `"${title}" agregado a la lista`);
+}
+
+// ==================== TIMELINE TRIMMER ====================
+function initTimelineTrimmer() {
+  const track = document.getElementById('timelineTrack');
+  const selection = document.getElementById('timelineSelection');
+  const handleLeft = document.getElementById('handleLeft');
+  const handleRight = document.getElementById('handleRight');
+
+  // Mouse down en handle izquierdo
+  handleLeft.addEventListener('mousedown', (e) => {
+    e.stopPropagation();
+    isDragging = true;
+    dragType = 'left';
+    dragStartX = e.clientX;
+    dragStartLeft = trimStart;
+    document.body.style.cursor = 'ew-resize';
+  });
+
+  // Mouse down en handle derecho
+  handleRight.addEventListener('mousedown', (e) => {
+    e.stopPropagation();
+    isDragging = true;
+    dragType = 'right';
+    dragStartX = e.clientX;
+    dragStartRight = trimEnd;
+    document.body.style.cursor = 'ew-resize';
+  });
+
+  // Mouse down en selección (mover todo)
+  selection.addEventListener('mousedown', (e) => {
+    if (e.target === selection) {
+      e.stopPropagation();
+      isDragging = true;
+      dragType = 'selection';
+      dragStartX = e.clientX;
+      dragStartLeft = trimStart;
+      dragStartRight = trimEnd;
+      document.body.style.cursor = 'move';
+    }
+  });
+
+  // Mouse move global
+  document.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+
+    const trackRect = track.getBoundingClientRect();
+    const trackWidth = trackRect.width;
+    const deltaX = e.clientX - dragStartX;
+    const deltaTime = (deltaX / trackWidth) * audioDuration;
+
+    if (dragType === 'left') {
+      trimStart = Math.max(0, Math.min(dragStartLeft + deltaTime, trimEnd - 1));
+      updateTimelineUI();
+    } else if (dragType === 'right') {
+      trimEnd = Math.min(audioDuration, Math.max(dragStartRight + deltaTime, trimStart + 1));
+      updateTimelineUI();
+    } else if (dragType === 'selection') {
+      const duration = dragStartRight - dragStartLeft;
+      let newStart = dragStartLeft + deltaTime;
+      let newEnd = dragStartRight + deltaTime;
+
+      // Limitar a los bordes
+      if (newStart < 0) {
+        newStart = 0;
+        newEnd = duration;
+      }
+      if (newEnd > audioDuration) {
+        newEnd = audioDuration;
+        newStart = audioDuration - duration;
+      }
+
+      trimStart = newStart;
+      trimEnd = newEnd;
+      updateTimelineUI();
+    }
+  });
+
+  // Mouse up global
+  document.addEventListener('mouseup', () => {
+    if (isDragging) {
+      isDragging = false;
+      dragType = null;
+      document.body.style.cursor = 'default';
+    }
+  });
+}
+
+function updateTimelineUI() {
+  const selection = document.getElementById('timelineSelection');
+  const startPercent = (trimStart / audioDuration) * 100;
+  const endPercent = (trimEnd / audioDuration) * 100;
+
+  selection.style.left = startPercent + '%';
+  selection.style.width = (endPercent - startPercent) + '%';
+
+  // Actualizar tiempos
+  document.getElementById('trimStartTime').textContent = formatTime(trimStart);
+  document.getElementById('trimEndTime').textContent = formatTime(trimEnd);
+  document.getElementById('trimDuration').textContent = formatTime(trimEnd - trimStart);
+  document.getElementById('totalDuration').textContent = formatTime(audioDuration);
+}
+
+function formatTime(seconds) {
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+// ==================== TIMELINE TRIMMER MÓVIL ====================
+function initTimelineTrimmerMobile() {
+  const track = document.getElementById('timelineTrackMobile');
+  const selection = document.getElementById('timelineSelectionMobile');
+  const handleLeft = document.getElementById('handleLeftMobile');
+  const handleRight = document.getElementById('handleRightMobile');
+
+  // Mouse down en handle izquierdo
+  handleLeft.addEventListener('mousedown', (e) => {
+    e.stopPropagation();
+
+    // Pausar reproducción si está activa
+    if (previewMobilePlaying) {
+      stopPreviewMobilePlayback();
+    }
+
+    isDraggingMobile = true;
+    dragTypeMobile = 'left';
+    dragStartXMobile = e.clientX;
+    dragStartLeftMobile = previewMobileTrimStart;
+    document.body.style.cursor = 'ew-resize';
+  });
+
+  // Mouse down en handle derecho
+  handleRight.addEventListener('mousedown', (e) => {
+    e.stopPropagation();
+
+    // Pausar reproducción si está activa
+    if (previewMobilePlaying) {
+      stopPreviewMobilePlayback();
+    }
+
+    isDraggingMobile = true;
+    dragTypeMobile = 'right';
+    dragStartXMobile = e.clientX;
+    dragStartRightMobile = previewMobileTrimEnd;
+    document.body.style.cursor = 'ew-resize';
+  });
+
+  // Mouse down en selección (mover todo)
+  selection.addEventListener('mousedown', (e) => {
+    if (e.target === selection) {
+      e.stopPropagation();
+
+      // Pausar reproducción si está activa
+      if (previewMobilePlaying) {
+        stopPreviewMobilePlayback();
+      }
+
+      isDraggingMobile = true;
+      dragTypeMobile = 'selection';
+      dragStartXMobile = e.clientX;
+      dragStartLeftMobile = previewMobileTrimStart;
+      dragStartRightMobile = previewMobileTrimEnd;
+      document.body.style.cursor = 'move';
+    }
+  });
+
+  // Mouse move global
+  document.addEventListener('mousemove', (e) => {
+    if (!isDraggingMobile) return;
+
+    const trackRect = track.getBoundingClientRect();
+    const trackWidth = trackRect.width;
+    const deltaX = e.clientX - dragStartXMobile;
+    const deltaTime = (deltaX / trackWidth) * previewMobileAudioDuration;
+
+    if (dragTypeMobile === 'left') {
+      previewMobileTrimStart = Math.max(0, Math.min(dragStartLeftMobile + deltaTime, previewMobileTrimEnd - 1));
+      updateTimelineUIMobile();
+      updatePreviewMobileBassLevels();
+    } else if (dragTypeMobile === 'right') {
+      previewMobileTrimEnd = Math.min(previewMobileAudioDuration, Math.max(dragStartRightMobile + deltaTime, previewMobileTrimStart + 1));
+      updateTimelineUIMobile();
+      updatePreviewMobileBassLevels();
+    } else if (dragTypeMobile === 'selection') {
+      const duration = dragStartRightMobile - dragStartLeftMobile;
+      let newStart = dragStartLeftMobile + deltaTime;
+      let newEnd = dragStartRightMobile + deltaTime;
+
+      // Limitar a los bordes
+      if (newStart < 0) {
+        newStart = 0;
+        newEnd = duration;
+      }
+      if (newEnd > previewMobileAudioDuration) {
+        newEnd = previewMobileAudioDuration;
+        newStart = previewMobileAudioDuration - duration;
+      }
+
+      previewMobileTrimStart = newStart;
+      previewMobileTrimEnd = newEnd;
+      updateTimelineUIMobile();
+      updatePreviewMobileBassLevels();
+    }
+  });
+
+  // Mouse up global
+  document.addEventListener('mouseup', () => {
+    if (isDraggingMobile) {
+      isDraggingMobile = false;
+      dragTypeMobile = null;
+      document.body.style.cursor = 'default';
+
+      // Guardar los valores de trim en el video
+      if (previewMobileVideoData) {
+        savePreviewMobileTrimToVideo();
+      }
+    }
+  });
+}
+
+function updateTimelineUIMobile() {
+  const selection = document.getElementById('timelineSelectionMobile');
+  const startPercent = (previewMobileTrimStart / previewMobileAudioDuration) * 100;
+  const endPercent = (previewMobileTrimEnd / previewMobileAudioDuration) * 100;
+
+  selection.style.left = startPercent + '%';
+  selection.style.width = (endPercent - startPercent) + '%';
+
+  // Actualizar tiempos
+  document.getElementById('trimStartTimeMobile').textContent = formatTime(previewMobileTrimStart);
+  document.getElementById('trimEndTimeMobile').textContent = formatTime(previewMobileTrimEnd);
+  document.getElementById('trimDurationMobile').textContent = formatTime(previewMobileTrimEnd - previewMobileTrimStart);
+  document.getElementById('totalDurationMobile').textContent = formatTime(previewMobileAudioDuration);
+}
+
+function updatePreviewMobileBassLevels() {
+  // Actualizar el array de bassLevels basado en la nueva selección
+  const fps = 60;
+  const startFrame = Math.floor(previewMobileTrimStart * fps);
+  const endFrame = Math.ceil(previewMobileTrimEnd * fps);
+  previewMobileBassLevels = previewMobileFullBassLevels.slice(startFrame, endFrame);
+}
+
+async function savePreviewMobileTrimToVideo() {
+  // Guardar los valores de trim en la base de datos
+  if (previewMobileVideoData && previewMobileVideoData.id) {
+    await window.electronAPI.updateVideo(previewMobileVideoData.id, {
+      trimStart: previewMobileTrimStart,
+      trimEnd: previewMobileTrimEnd
+    });
+
+    // Actualizar en el array local
+    const index = videos.findIndex(v => v.id === previewMobileVideoData.id);
+    if (index !== -1) {
+      videos[index].trimStart = previewMobileTrimStart;
+      videos[index].trimEnd = previewMobileTrimEnd;
+    }
+  }
 }
 
 // ==================== ACCIONES ====================
@@ -686,6 +1024,301 @@ function closePreviewModal() {
     previewAudio.pause();
     previewAudio.src = '';
     previewAudio = null;
+  }
+}
+
+// ==================== PREVIEW MOBILE ====================
+async function handlePreviewMobile(id) {
+  const video = videos.find(v => v.id === id);
+  if (!video) return;
+
+  // Cerrar menú de acciones
+  document.querySelectorAll('.actions-menu').forEach(m => m.classList.remove('show'));
+
+  // Mostrar toast de carga
+  showToast('info', 'Cargando', 'Preparando preview móvil...', false);
+
+  try {
+    // Guardar datos del video para preview móvil
+    previewMobileVideoData = JSON.parse(JSON.stringify(video)); // Clone profundo
+
+    // Determinar qué fondo usar para móvil
+    let mobileBgPath = video.bgMobilePath || video.bgMobileVideoPath;
+    let isVideo = !!video.bgMobileVideoPath;
+
+    // Si no hay fondo móvil específico, usar el fondo normal
+    if (!mobileBgPath) {
+      mobileBgPath = video.bgPath || video.bgVideoPath;
+      isVideo = !!video.bgVideoPath;
+    }
+
+    // Cargar fondo
+    if (mobileBgPath) {
+      if (isVideo) {
+        previewMobileVideoData.bgVideo = await loadVideo('file:///' + mobileBgPath.replace(/\\/g, '/'));
+      } else {
+        previewMobileVideoData.bgImage = await loadImage('file:///' + mobileBgPath.replace(/\\/g, '/'));
+      }
+    }
+
+    // Cargar logo si existe
+    if (previewMobileVideoData.logoPath) {
+      previewMobileVideoData.logoImage = await loadImage('file:///' + previewMobileVideoData.logoPath.replace(/\\/g, '/'));
+    }
+
+    // Cargar y analizar audio para preview
+    const audioSrc = 'file:///' + video.audioPath.replace(/\\/g, '/');
+    const response = await fetch(audioSrc);
+    const arrayBuffer = await response.arrayBuffer();
+
+    // Crear audio element
+    previewMobileAudio = new Audio();
+    const blob = new Blob([arrayBuffer], { type: 'audio/mpeg' });
+    const blobUrl = URL.createObjectURL(blob);
+    previewMobileAudio.src = blobUrl;
+
+    await new Promise((resolve) => {
+      previewMobileAudio.addEventListener('loadedmetadata', resolve);
+    });
+
+    // Analizar audio para obtener bassLevels reales
+    const fps = 60;
+    const fullDuration = previewMobileAudio.duration;
+
+    // Guardar duración del audio
+    previewMobileAudioDuration = fullDuration;
+
+    // Inicializar valores de trim (por defecto, toda la canción)
+    const startTime = video.trimStart !== undefined ? video.trimStart : 0;
+    const endTime = video.trimEnd !== undefined ? video.trimEnd : fullDuration;
+
+    previewMobileTrimStart = startTime;
+    previewMobileTrimEnd = endTime;
+
+    // Analizar todo el audio y guardarlo completo
+    previewMobileFullBassLevels = await window.electronAPI.analyzeAudioFFmpeg({
+      audioPath: video.audioPath,
+      totalFrames: Math.ceil(fullDuration * fps),
+      fps: fps
+    });
+
+    // Extraer la porción recortada inicial
+    const startFrame = Math.floor(startTime * fps);
+    const endFrame = Math.ceil(endTime * fps);
+    previewMobileBassLevels = previewMobileFullBassLevels.slice(startFrame, endFrame);
+
+    // Mostrar timeline trimmer
+    document.getElementById('timelineTrimmerMobile').style.display = 'block';
+    updateTimelineUIMobile();
+
+    // Configurar el audio para que inicie en startTime
+    previewMobileAudio.currentTime = startTime;
+
+    // Cerrar toast de carga
+    document.querySelectorAll('.toast').forEach(t => t.remove());
+
+    // Renderizar primer frame
+    const canvas = document.getElementById('previewMobileCanvas');
+    const ctx = canvas.getContext('2d');
+    await renderPreviewMobile(ctx, canvas, previewMobileVideoData);
+
+    // Reset play button
+    previewMobilePlaying = false;
+    updatePlayMobileButton();
+
+    // Mostrar modal
+    document.getElementById('previewMobileModal').classList.add('show');
+  } catch (error) {
+    console.error('[handlePreviewMobile] Error:', error);
+    showToast('error', 'Error', 'Error preparando preview móvil: ' + error.message);
+  }
+}
+
+function closePreviewMobileModal() {
+  document.getElementById('previewMobileModal').classList.remove('show');
+  stopPreviewMobilePlayback();
+
+  // Ocultar timeline trimmer
+  document.getElementById('timelineTrimmerMobile').style.display = 'none';
+
+  // Limpiar estado
+  previewMobileVideoData = null;
+  previewMobileBassLevels = null;
+  previewMobileFullBassLevels = null;
+  previewMobileTrimStart = 0;
+  previewMobileTrimEnd = 0;
+  previewMobileAudioDuration = 0;
+
+  if (previewMobileAudio) {
+    previewMobileAudio.pause();
+    previewMobileAudio.src = '';
+    previewMobileAudio = null;
+  }
+}
+
+async function togglePreviewMobilePlayback() {
+  if (previewMobilePlaying) {
+    stopPreviewMobilePlayback();
+  } else {
+    await startPreviewMobilePlayback();
+  }
+}
+
+function updatePlayMobileButton() {
+  const icon = document.getElementById('playPreviewMobileIcon');
+  const text = document.getElementById('playPreviewMobileText');
+
+  if (previewMobilePlaying) {
+    icon.textContent = '⏸';
+    text.textContent = 'Pausar';
+  } else {
+    icon.textContent = '▶';
+    text.textContent = 'Reproducir';
+  }
+}
+
+async function startPreviewMobilePlayback() {
+  if (!previewMobileVideoData || !previewMobileBassLevels || !previewMobileAudio || previewMobilePlaying) return;
+
+  previewMobilePlaying = true;
+  updatePlayMobileButton();
+
+  try {
+    // Asegurarse de que el audio esté pausado primero
+    if (!previewMobileAudio.paused) {
+      previewMobileAudio.pause();
+      // Esperar un momento para que la pausa se complete
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+
+    // Reproducir audio desde trimStart
+    previewMobileAudio.currentTime = previewMobileTrimStart;
+
+    // Esperar un momento para que currentTime se actualice
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    // Esperar a que el audio esté listo para reproducir
+    await new Promise((resolve) => {
+      const checkReady = () => {
+        if (Math.abs(previewMobileAudio.currentTime - previewMobileTrimStart) < 0.5) {
+          resolve();
+        } else {
+          setTimeout(checkReady, 10);
+        }
+      };
+      checkReady();
+    });
+
+    await previewMobileAudio.play();
+
+    // Reproducir video de fondo si existe, también desde trimStart
+    if (previewMobileVideoData.bgVideo) {
+      if (!previewMobileVideoData.bgVideo.paused) {
+        previewMobileVideoData.bgVideo.pause();
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      previewMobileVideoData.bgVideo.currentTime = previewMobileTrimStart;
+      await new Promise(resolve => setTimeout(resolve, 50));
+      await previewMobileVideoData.bgVideo.play();
+    }
+  } catch (error) {
+    console.error('Error al reproducir preview móvil:', error);
+    stopPreviewMobilePlayback();
+    return;
+  }
+
+  previewMobileStartTime = performance.now();
+
+  const canvas = document.getElementById('previewMobileCanvas');
+  const ctx = canvas.getContext('2d');
+
+  let bassSmooth = 0;
+  let beatBoost = 0;
+  const particles = [];
+  const fps = 60;
+
+  function animate() {
+    if (!previewMobilePlaying) return;
+
+    // Calcular frame actual basado en tiempo de audio relativo al trimStart
+    const currentTime = previewMobileAudio.currentTime;
+
+    // Si pasamos el trimEnd con un margen pequeño, detener
+    if (currentTime >= previewMobileTrimEnd + 0.1) {
+      stopPreviewMobilePlayback();
+      return;
+    }
+
+    // Calcular índice de frame relativo al inicio del trim
+    const relativeTime = currentTime - previewMobileTrimStart;
+    const frameIndex = Math.floor(relativeTime * fps);
+
+    // Si el frameIndex es negativo pero pequeño (aún no se actualizó currentTime), usar 0
+    const safeFrameIndex = frameIndex < 0 ? 0 : frameIndex;
+
+    // Si llegamos al final del array de bassLevels, detener
+    if (safeFrameIndex >= previewMobileBassLevels.length) {
+      stopPreviewMobilePlayback();
+      return;
+    }
+
+    // Obtener nivel de bajos real del análisis
+    const level = previewMobileBassLevels[safeFrameIndex] || 0;
+    const prevLevel = safeFrameIndex > 0 ? previewMobileBassLevels[safeFrameIndex - 1] : 0;
+    const delta = Math.max(0, level - prevLevel);
+
+    // Actualizar estado
+    bassSmooth = bassSmooth * 0.82 + level * 0.18;
+    beatBoost = beatBoost * 0.65 + delta * 1.6 * 0.35;
+
+    // Emitir partículas
+    const emission = Math.floor((delta * 90) + (level * 20));
+    if (emission > 0) {
+      spawnParticlesMobile(particles, emission, bassSmooth, beatBoost, previewMobileVideoData.color, canvas);
+    }
+
+    // Renderizar
+    renderFrameMobile(ctx, canvas, particles, bassSmooth, beatBoost, previewMobileVideoData, previewMobileVideoData.bgImage);
+
+    previewMobileAnimationId = requestAnimationFrame(animate);
+  }
+
+  animate();
+}
+
+function stopPreviewMobilePlayback() {
+  previewMobilePlaying = false;
+  updatePlayMobileButton();
+
+  // Cancelar animación primero
+  if (previewMobileAnimationId) {
+    cancelAnimationFrame(previewMobileAnimationId);
+    previewMobileAnimationId = null;
+  }
+
+  // Pausar audio
+  if (previewMobileAudio && !previewMobileAudio.paused) {
+    try {
+      previewMobileAudio.pause();
+    } catch (error) {
+      console.error('Error pausando audio:', error);
+    }
+  }
+
+  // Pausar video de fondo si existe
+  if (previewMobileVideoData && previewMobileVideoData.bgVideo && !previewMobileVideoData.bgVideo.paused) {
+    try {
+      previewMobileVideoData.bgVideo.pause();
+    } catch (error) {
+      console.error('Error pausando video:', error);
+    }
+  }
+
+  // Renderizar frame estático
+  if (previewMobileVideoData) {
+    const canvas = document.getElementById('previewMobileCanvas');
+    const ctx = canvas.getContext('2d');
+    renderPreviewMobile(ctx, canvas, previewMobileVideoData);
   }
 }
 
@@ -889,8 +1522,13 @@ async function handleGenerate(id) {
 
   // Generar en background
   try {
-    await generateVideo(video);
-    console.log('[handleGenerate] generateVideo completado exitosamente');
+    // Generar video normal (16:9)
+    await generateVideo(video, false);
+    console.log('[handleGenerate] Video normal completado exitosamente');
+
+    // Generar video móvil (9:16) con trim
+    await generateVideo(video, true);
+    console.log('[handleGenerate] Video móvil completado exitosamente');
 
     // Actualizar estado a completed
     const videoIndex = videos.findIndex(v => v.id === id);
@@ -899,7 +1537,7 @@ async function handleGenerate(id) {
     }
     renderTable();
 
-    showToast('success', 'Completado', `"${video.title}" generado exitosamente`);
+    showToast('success', 'Completado', `"${video.title}" generado exitosamente (Normal + Móvil)`);
   } catch (error) {
     console.error('[handleGenerate] Error generating video:', error);
     console.error('[handleGenerate] Error stack:', error.stack);
@@ -967,6 +1605,16 @@ async function handleEdit(id) {
   document.getElementById('audioFileName').textContent = audioFileName;
   document.getElementById('audioFileBtn').classList.add('selected');
 
+  // Cargar audio para timeline trimmer
+  await loadAudioForTrimmer(video.audioPath);
+
+  // Restaurar valores de trim si existen
+  if (video.trimStart !== undefined && video.trimEnd !== undefined) {
+    trimStart = video.trimStart;
+    trimEnd = video.trimEnd;
+    updateTimelineUI();
+  }
+
   // Configurar fondo
   if (video.bgVideoPath) {
     selectedBgVideoPath = video.bgVideoPath;
@@ -982,6 +1630,23 @@ async function handleEdit(id) {
     document.getElementById('bgFileBtn').classList.add('selected');
     document.getElementById('bgTypeImage').checked = true;
     toggleBgType();
+  }
+
+  // Configurar fondo móvil
+  if (video.bgMobileVideoPath) {
+    selectedBgMobileVideoPath = video.bgMobileVideoPath;
+    const videoFileName = video.bgMobileVideoPath.split(/[\\/]/).pop();
+    document.getElementById('bgMobileVideoName').textContent = videoFileName;
+    document.getElementById('bgMobileVideoBtn').classList.add('selected');
+    document.getElementById('bgMobileTypeVideo').checked = true;
+    toggleBgMobileType();
+  } else if (video.bgMobilePath) {
+    selectedBgMobilePath = video.bgMobilePath;
+    const bgFileName = video.bgMobilePath.split(/[\\/]/).pop();
+    document.getElementById('bgMobileFileName').textContent = bgFileName;
+    document.getElementById('bgMobileFileBtn').classList.add('selected');
+    document.getElementById('bgMobileTypeImage').checked = true;
+    toggleBgMobileType();
   }
 
   // Configurar logo/contenido
@@ -1087,8 +1752,9 @@ function updateProgress(id, percent) {
 }
 
 // ==================== GENERACIÓN DE VIDEO ====================
-async function generateVideo(video) {
-  console.log('[generateVideo] Iniciando para:', video.title);
+async function generateVideo(video, isMobile = false) {
+  const videoType = isMobile ? 'móvil' : 'normal';
+  console.log(`[generateVideo] Iniciando para: ${video.title} (${videoType})`);
   console.log('[generateVideo] audioPath:', video.audioPath);
 
   const audioSrc = 'file:///' + video.audioPath.replace(/\\/g, '/');
@@ -1122,19 +1788,32 @@ async function generateVideo(video) {
   console.log('[generateVideo] Audio cargado exitosamente');
 
   const fps = 60;
-  const audioDuration = audio.duration;
-  const totalFrames = Math.ceil(audioDuration * fps);
-  const framesDir = window.electronAPI.getTempDir() + '/visualizer_frames_' + Date.now();
+  const fullAudioDuration = audio.duration;
 
-  console.log('[generateVideo] Configuración:', { fps, audioDuration, totalFrames, framesDir });
+  // Para móvil, usar los valores de trim si existen
+  const startTime = isMobile && video.trimStart !== undefined ? video.trimStart : 0;
+  const endTime = isMobile && video.trimEnd !== undefined ? video.trimEnd : fullAudioDuration;
+  const audioDuration = endTime - startTime;
+
+  const totalFrames = Math.ceil(audioDuration * fps);
+  const framesDir = window.electronAPI.getTempDir() + `/visualizer_frames_${isMobile ? 'mobile' : 'desktop'}_` + Date.now();
+
+  console.log('[generateVideo] Configuración:', { fps, audioDuration, totalFrames, framesDir, startTime, endTime });
   console.log('[generateVideo] Iniciando análisis de audio con FFmpeg...');
 
   // Usar FFmpeg para extraer datos de audio de forma confiable
-  const bassLevels = await window.electronAPI.analyzeAudioFFmpeg({
+  // Para el móvil, analizar solo la porción recortada
+  const fullBassLevels = await window.electronAPI.analyzeAudioFFmpeg({
     audioPath: video.audioPath,
-    totalFrames: totalFrames,
+    totalFrames: Math.ceil(fullAudioDuration * fps),
     fps: fps
   });
+
+  // Si es móvil, extraer solo la porción necesaria
+  const startFrame = Math.floor(startTime * fps);
+  const endFrame = Math.ceil(endTime * fps);
+  const bassLevels = isMobile ? fullBassLevels.slice(startFrame, endFrame) : fullBassLevels;
+
   console.log('[generateVideo] bassLevels generados:', bassLevels.length);
 
   // Limpiar blob URL
@@ -1142,17 +1821,30 @@ async function generateVideo(video) {
 
   console.log('[generateVideo] Análisis de audio completado, bassLevels.length:', bassLevels.length);
 
-  // Cargar imagen de fondo si existe
+  // Cargar fondo según si es móvil o no
   let bgImage = null;
-  if (video.bgPath) {
-    bgImage = await loadImage('file:///' + video.bgPath.replace(/\\/g, '/'));
-  }
-
-  // Cargar video de fondo si existe
   let bgVideo = null;
-  if (video.bgVideoPath) {
-    bgVideo = await loadVideo('file:///' + video.bgVideoPath.replace(/\\/g, '/'));
-    video.bgVideo = bgVideo;
+
+  if (isMobile) {
+    // Para móvil, usar fondos móviles si existen, sino usar los normales
+    const mobileBgPath = video.bgMobilePath || video.bgPath;
+    const mobileBgVideoPath = video.bgMobileVideoPath || video.bgVideoPath;
+
+    if (mobileBgVideoPath) {
+      bgVideo = await loadVideo('file:///' + mobileBgVideoPath.replace(/\\/g, '/'));
+      video.bgVideo = bgVideo;
+    } else if (mobileBgPath) {
+      bgImage = await loadImage('file:///' + mobileBgPath.replace(/\\/g, '/'));
+    }
+  } else {
+    // Para normal, usar fondos normales
+    if (video.bgPath) {
+      bgImage = await loadImage('file:///' + video.bgPath.replace(/\\/g, '/'));
+    }
+    if (video.bgVideoPath) {
+      bgVideo = await loadVideo('file:///' + video.bgVideoPath.replace(/\\/g, '/'));
+      video.bgVideo = bgVideo;
+    }
   }
 
   // Cargar imagen de logo si existe
@@ -1162,9 +1854,19 @@ async function generateVideo(video) {
     video.logoImage = logoImage;
   }
 
-  // Renderizar frames
-  const canvas = document.getElementById('vizCanvas');
-  const ctx = canvas.getContext('2d');
+  // Renderizar frames - crear canvas temporal para móvil
+  let canvas, ctx;
+  if (isMobile) {
+    // Crear canvas temporal para móvil (9:16)
+    canvas = document.createElement('canvas');
+    canvas.width = 1080;
+    canvas.height = 1920;
+    ctx = canvas.getContext('2d');
+  } else {
+    // Usar canvas existente para desktop (16:9)
+    canvas = document.getElementById('vizCanvas');
+    ctx = canvas.getContext('2d');
+  }
 
   let bassSmooth = 0;
   let beatBoost = 0;
@@ -1203,11 +1905,19 @@ async function generateVideo(video) {
     // Emitir partículas
     const emission = Math.floor((delta * 90) + (level * 20));
     if (emission > 0) {
-      spawnParticles(particles, emission, bassSmooth, beatBoost, video.color, canvas);
+      if (isMobile) {
+        spawnParticlesMobile(particles, emission, bassSmooth, beatBoost, video.color, canvas);
+      } else {
+        spawnParticles(particles, emission, bassSmooth, beatBoost, video.color, canvas);
+      }
     }
 
     // Renderizar frame
-    renderFrame(ctx, canvas, particles, bassSmooth, beatBoost, video, bgImage);
+    if (isMobile) {
+      renderFrameMobile(ctx, canvas, particles, bassSmooth, beatBoost, video, bgImage);
+    } else {
+      renderFrame(ctx, canvas, particles, bassSmooth, beatBoost, video, bgImage);
+    }
 
     // Guardar frame
     const frameData = canvas.toDataURL('image/png');
@@ -1232,30 +1942,46 @@ async function generateVideo(video) {
 
   // Generar video con FFmpeg
   const outputsDir = await window.electronAPI.getOutputsDir();
-  const outputPath = `${outputsDir}/${video.id}_${sanitizeFilename(video.title)}.mp4`;
+  const suffix = isMobile ? '_mobile' : '';
+  const outputPath = `${outputsDir}/${video.id}_${sanitizeFilename(video.title)}${suffix}.mp4`;
 
   await window.electronAPI.generateVideo({
     audioPath: video.audioPath,
     framesDir: framesDir,
     outputPath: outputPath,
     fps: fps,
-    totalFrames: totalFrames
+    totalFrames: totalFrames,
+    trimStart: isMobile ? startTime : undefined,
+    trimEnd: isMobile ? endTime : undefined
   });
 
   // Limpiar frames
   await window.electronAPI.cleanupFrames(framesDir);
 
-  // Actualizar video como completado
-  await window.electronAPI.updateVideo(video.id, {
-    status: 'completed',
-    outputPath: outputPath
-  });
+  // Actualizar video como completado (solo actualizar outputPath para el normal)
+  if (!isMobile) {
+    await window.electronAPI.updateVideo(video.id, {
+      status: 'completed',
+      outputPath: outputPath
+    });
 
-  const index = videos.findIndex(v => v.id === video.id);
-  if (index !== -1) {
-    videos[index].status = 'completed';
-    videos[index].outputPath = outputPath;
+    const index = videos.findIndex(v => v.id === video.id);
+    if (index !== -1) {
+      videos[index].status = 'completed';
+      videos[index].outputPath = outputPath;
+    }
+  } else {
+    // Para móvil, solo guardar el outputPathMobile
+    await window.electronAPI.updateVideo(video.id, {
+      outputPathMobile: outputPath
+    });
+
+    const index = videos.findIndex(v => v.id === video.id);
+    if (index !== -1) {
+      videos[index].outputPathMobile = outputPath;
+    }
   }
+
   renderTable();
 }
 
@@ -1475,6 +2201,218 @@ async function renderPreview(ctx, canvas, video) {
 
   const particles = [];
   renderFrame(ctx, canvas, particles, 0.3, 0.1, video, bgImage);
+}
+
+// ==================== RENDERIZADO MÓVIL ====================
+function renderFrameMobile(ctx, canvas, particles, level, boost, video, bgImage) {
+  const w = canvas.width; // 1080
+  const h = canvas.height; // 1920
+
+  // Fondo
+  if (video.bgVideo) {
+    // Dibujar video de fondo (silenciado)
+    // Si no hay bgMobileVideo específico y estamos usando el fondo normal, recortar al centro
+    if (!video.bgMobilePath && !video.bgMobileVideoPath) {
+      // Recortar el centro de la imagen 16:9 a formato 9:16
+      const srcWidth = video.bgVideo.videoWidth;
+      const srcHeight = video.bgVideo.videoHeight;
+      const targetAspect = 9 / 16; // móvil
+      const srcAspect = srcWidth / srcHeight;
+
+      // Calcular recorte centrado
+      let sx, sy, sWidth, sHeight;
+      if (srcAspect > targetAspect) {
+        // Fuente es más ancha, recortar los lados
+        sHeight = srcHeight;
+        sWidth = srcHeight * targetAspect;
+        sx = (srcWidth - sWidth) / 2;
+        sy = 0;
+      } else {
+        // Fuente es más alta, recortar arriba y abajo
+        sWidth = srcWidth;
+        sHeight = srcWidth / targetAspect;
+        sx = 0;
+        sy = (srcHeight - sHeight) / 2;
+      }
+
+      ctx.drawImage(video.bgVideo, sx, sy, sWidth, sHeight, 0, 0, w, h);
+    } else {
+      ctx.drawImage(video.bgVideo, 0, 0, w, h);
+    }
+  } else if (bgImage) {
+    // Dibujar imagen de fondo
+    // Si no hay bgMobilePath específico y estamos usando el fondo normal, recortar al centro
+    if (!video.bgMobilePath && !video.bgMobileVideoPath) {
+      // Recortar el centro de la imagen 16:9 a formato 9:16
+      const srcWidth = bgImage.width;
+      const srcHeight = bgImage.height;
+      const targetAspect = 9 / 16; // móvil
+      const srcAspect = srcWidth / srcHeight;
+
+      // Calcular recorte centrado
+      let sx, sy, sWidth, sHeight;
+      if (srcAspect > targetAspect) {
+        // Fuente es más ancha, recortar los lados
+        sHeight = srcHeight;
+        sWidth = srcHeight * targetAspect;
+        sx = (srcWidth - sWidth) / 2;
+        sy = 0;
+      } else {
+        // Fuente es más alta, recortar arriba y abajo
+        sWidth = srcWidth;
+        sHeight = srcWidth / targetAspect;
+        sx = 0;
+        sy = (srcHeight - sHeight) / 2;
+      }
+
+      ctx.drawImage(bgImage, sx, sy, sWidth, sHeight, 0, 0, w, h);
+    } else {
+      ctx.drawImage(bgImage, 0, 0, w, h);
+    }
+  } else {
+    // Fondo sólido por defecto
+    ctx.fillStyle = '#0b0f1a';
+    ctx.fillRect(0, 0, w, h);
+  }
+
+  // Overlay
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+  ctx.fillRect(0, 0, w, h);
+
+  // Contenido arriba (texto o imagen)
+  const contentY = h * 0.25; // 25% desde arriba
+  if (video.logoImage) {
+    // Mostrar imagen/logo
+    const maxLogoWidth = w * 0.7;
+    const maxLogoHeight = h * 0.25;
+    const logoAspect = video.logoImage.width / video.logoImage.height;
+
+    let logoWidth = maxLogoWidth;
+    let logoHeight = logoWidth / logoAspect;
+
+    if (logoHeight > maxLogoHeight) {
+      logoHeight = maxLogoHeight;
+      logoWidth = logoHeight * logoAspect;
+    }
+
+    const logoX = (w - logoWidth) / 2;
+    const logoY = contentY - logoHeight / 2;
+
+    ctx.shadowBlur = 30;
+    ctx.shadowColor = 'rgba(0,0,0,0.5)';
+    ctx.drawImage(video.logoImage, logoX, logoY, logoWidth, logoHeight);
+    ctx.shadowBlur = 0;
+  } else if (video.text) {
+    // Mostrar texto centrado
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 72px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.shadowBlur = 30;
+    ctx.shadowColor = 'rgba(0,0,0,0.35)';
+
+    const lines = video.text.split('\n');
+    const lineHeight = 86;
+    const totalHeight = lines.length * lineHeight;
+    const startY = contentY - totalHeight / 2 + 72;
+
+    lines.forEach((line, i) => {
+      ctx.fillText(line, w / 2, startY + (i * lineHeight));
+    });
+
+    ctx.shadowBlur = 0;
+  }
+
+  // Visualizador abajo (70% desde arriba)
+  const vizSize = Math.min(w, h * 0.4) * 0.7 * 1.3; // Aumentado 30%
+  const vizX = w / 2;
+  const vizY = h * 0.65;
+
+  ctx.save();
+  ctx.translate(vizX, vizY);
+
+  // Anillo con efecto de agrandamiento
+  const baseR = vizSize * 0.336;
+  const pulse = (level * 1.08 + boost * 1.56);
+  const radius = baseR * (1.0 + pulse * 0.54);
+  const glow = 22 + pulse * 72;
+
+  ctx.beginPath();
+  ctx.lineWidth = Math.max(6, vizSize * 0.01);
+  ctx.strokeStyle = video.color;
+  ctx.shadowBlur = glow;
+  ctx.shadowColor = video.color;
+  ctx.arc(0, 0, radius, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Partículas orbitando
+  const orbitCount = 120;
+  for (let i = 0; i < orbitCount; i++) {
+    const t = (i / orbitCount) * Math.PI * 2 + performance.now() / 900;
+    const jitter = (Math.sin((i * 13.37 + performance.now() / 70) % Math.PI) * 0.5 + 0.5) * 4;
+    const pr = radius + 8 + jitter + pulse * 21.6;
+    const x = Math.cos(t) * pr;
+    const y = Math.sin(t) * pr;
+
+    ctx.beginPath();
+    ctx.fillStyle = video.color;
+    ctx.globalAlpha = 0.55 + Math.random() * 0.35;
+    ctx.arc(x, y, 1.8 + Math.random() * 1.5 + pulse * 0.42, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  ctx.restore();
+
+  // Dibujar partículas inward
+  for (let i = particles.length - 1; i >= 0; i--) {
+    if (!particles[i].update()) {
+      particles.splice(i, 1);
+      continue;
+    }
+    particles[i].draw(ctx, vizX, vizY);
+  }
+}
+
+async function renderPreviewMobile(ctx, canvas, video) {
+  // Cargar background si existe
+  let bgImage = null;
+  let mobileBgPath = video.bgMobilePath || video.bgMobileVideoPath;
+
+  // Si no hay fondo móvil específico, usar el fondo normal
+  if (!mobileBgPath) {
+    mobileBgPath = video.bgPath;
+  }
+
+  if (mobileBgPath) {
+    bgImage = await loadImage('file:///' + mobileBgPath.replace(/\\/g, '/'));
+  }
+
+  const particles = [];
+  renderFrameMobile(ctx, canvas, particles, 0.3, 0.1, video, bgImage);
+}
+
+function spawnParticlesMobile(particles, count, level, boost, color, canvas) {
+  const vizSize = Math.min(canvas.width, canvas.height * 0.4) * 0.7 * 1.3; // Aumentado 30%
+  const baseR = vizSize * 0.28;
+  const pulse = (level * 0.65 + boost * 0.85);
+  const radius = baseR * (1.0 + pulse);
+  const speedBase = (1.6 + boost * 4.0 + level * 2.5);
+
+  for (let i = 0; i < count; i++) {
+    const ang = Math.random() * Math.PI * 2;
+    const jitter = (Math.random() - 0.5) * 6;
+    const x = Math.cos(ang) * (radius + jitter);
+    const y = Math.sin(ang) * (radius + jitter);
+    const speed = speedBase * (0.7 + Math.random() * 0.8);
+
+    particles.push(new Particle(x, y, ang, speed, color));
+  }
+
+  // Limitar
+  const MAX_PARTICLES = 1200;
+  if (particles.length > MAX_PARTICLES) {
+    particles.splice(0, particles.length - MAX_PARTICLES);
+  }
 }
 
 function loadImage(src) {

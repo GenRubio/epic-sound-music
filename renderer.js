@@ -231,6 +231,7 @@ function initEventListeners() {
   // Preview mobile modal
   document.getElementById('closePreviewMobileBtn').addEventListener('click', closePreviewMobileModal);
   document.getElementById('playPreviewMobileBtn').addEventListener('click', togglePreviewMobilePlayback);
+  document.getElementById('generateMobileBtn').addEventListener('click', handleGenerateMobile);
 
   // Settings modal
   document.getElementById('settingsBtn').addEventListener('click', openSettingsModal);
@@ -302,7 +303,7 @@ function initEventListeners() {
     if (actionBtn.disabled) return;
 
     try {
-      switch(action) {
+      switch (action) {
         case 'preview':
           await handlePreview(id);
           break;
@@ -1526,10 +1527,6 @@ async function handleGenerate(id) {
     await generateVideo(video, false);
     console.log('[handleGenerate] Video normal completado exitosamente');
 
-    // Generar video móvil (9:16) con trim
-    await generateVideo(video, true);
-    console.log('[handleGenerate] Video móvil completado exitosamente');
-
     // Actualizar estado a completed
     const videoIndex = videos.findIndex(v => v.id === id);
     if (videoIndex !== -1) {
@@ -1537,7 +1534,7 @@ async function handleGenerate(id) {
     }
     renderTable();
 
-    showToast('success', 'Completado', `"${video.title}" generado exitosamente (Normal + Móvil)`);
+    showToast('success', 'Completado', `"${video.title}" generado exitosamente`);
   } catch (error) {
     console.error('[handleGenerate] Error generating video:', error);
     console.error('[handleGenerate] Error stack:', error.stack);
@@ -1560,6 +1557,99 @@ async function handleGenerate(id) {
     console.log('[handleGenerate] Finalizado');
   }
 }
+
+async function handleGenerateMobile() {
+  console.log('[handleGenerateMobile] Iniciando generación de video móvil');
+
+  if (!previewMobileVideoData) {
+    showToast('error', 'Error', 'No hay datos de preview móvil disponibles');
+    return;
+  }
+
+  const video = videos.find(v => v.id === previewMobileVideoData.id);
+  if (!video) {
+    console.error('[handleGenerateMobile] Video no encontrado');
+    return;
+  }
+
+  console.log('[handleGenerateMobile] Video encontrado:', video.title);
+
+  // Actualizar los valores de trim en el video con los valores actuales del preview
+  video.trimStart = previewMobileTrimStart;
+  video.trimEnd = previewMobileTrimEnd;
+
+  // Actualizar en la base de datos
+  try {
+    await window.electronAPI.updateVideo(video.id, {
+      trimStart: previewMobileTrimStart,
+      trimEnd: previewMobileTrimEnd
+    });
+    console.log('[handleGenerateMobile] Valores de trim actualizados en BD');
+  } catch (error) {
+    console.error('[handleGenerateMobile] Error actualizando trim:', error);
+  }
+
+  // Cerrar el modal de preview móvil
+  closePreviewMobileModal();
+
+  // Agregar a generaciones en curso
+  currentGeneratingIds.add(video.id);
+  console.log('[handleGenerateMobile] Agregado a generaciones en curso');
+
+  // Actualizar estado a generating
+  try {
+    await window.electronAPI.updateVideo(video.id, { status: 'generating' });
+    console.log('[handleGenerateMobile] Estado actualizado a generating en BD');
+  } catch (error) {
+    console.error('[handleGenerateMobile] Error actualizando estado:', error);
+  }
+
+  const index = videos.findIndex(v => v.id === video.id);
+  if (index !== -1) {
+    videos[index].status = 'generating';
+  }
+  renderTable();
+
+  showToast('info', 'Generando', `Iniciando generación de video móvil para "${video.title}"`);
+  console.log('[handleGenerateMobile] Toast mostrado, iniciando generateVideo...');
+
+  // Generar en background
+  try {
+    // Generar video móvil (9:16) con trim
+    await generateVideo(video, true);
+    console.log('[handleGenerateMobile] Video móvil completado exitosamente');
+
+    // Actualizar estado a completed
+    const videoIndex = videos.findIndex(v => v.id === video.id);
+    if (videoIndex !== -1) {
+      videos[videoIndex].status = 'completed';
+    }
+    renderTable();
+
+    showToast('success', 'Completado', `Video móvil de "${video.title}" generado exitosamente`);
+  } catch (error) {
+    console.error('[handleGenerateMobile] Error generating mobile video:', error);
+    console.error('[handleGenerateMobile] Error stack:', error.stack);
+
+    await window.electronAPI.updateVideo(video.id, {
+      status: 'error',
+      error: error.message
+    });
+
+    const videoIndex = videos.findIndex(v => v.id === video.id);
+    if (videoIndex !== -1) {
+      videos[videoIndex].status = 'error';
+      videos[videoIndex].error = error.message;
+    }
+    renderTable();
+
+    showToast('error', 'Error', `Error al generar video móvil de "${video.title}": ${error.message}`);
+  } finally {
+    currentGeneratingIds.delete(video.id);
+    console.log('[handleGenerateMobile] Finalizado');
+  }
+}
+
 
 async function handleView(id) {
   const video = videos.find(v => v.id === id);
@@ -2058,7 +2148,7 @@ async function analyzeAudio(arrayBuffer, totalFrames, fps) {
 
       // Log progress cada 1000 frames
       if (frame % 1000 === 0) {
-        console.log(`[analyzeAudio] Progreso: ${frame}/${totalFrames} frames (${((frame/totalFrames)*100).toFixed(1)}%)`);
+        console.log(`[analyzeAudio] Progreso: ${frame}/${totalFrames} frames (${((frame / totalFrames) * 100).toFixed(1)}%)`);
       }
     }
 

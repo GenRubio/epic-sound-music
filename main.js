@@ -84,7 +84,7 @@ ipcMain.handle('select-bg-video', async () => {
 
 // Generar video con FFmpeg
 ipcMain.handle('generate-video', async (event, options) => {
-  const { audioPath, framesDir, outputPath, fps, totalFrames } = options;
+  const { audioPath, framesDir, outputPath, fps, totalFrames, trimStart, trimEnd } = options;
 
   return new Promise((resolve, reject) => {
     // Patrón para los frames: frame_0001.png, frame_0002.png, etc.
@@ -92,8 +92,22 @@ ipcMain.handle('generate-video', async (event, options) => {
 
     const command = ffmpeg()
       .input(framePattern)
-      .inputFPS(fps)
-      .input(audioPath)
+      .inputFPS(fps);
+
+    // Configurar audio con trim si está especificado
+    if (trimStart !== undefined && trimEnd !== undefined) {
+      console.log(`[generate-video] Aplicando trim al audio: ${trimStart}s - ${trimEnd}s`);
+      command
+        .input(audioPath)
+        .inputOptions([
+          '-ss', trimStart.toString(),
+          '-to', trimEnd.toString()
+        ]);
+    } else {
+      command.input(audioPath);
+    }
+
+    command
       .videoCodec('libx264')
       .outputOptions([
         '-preset', 'medium',         // Balance entre velocidad y calidad
@@ -230,6 +244,8 @@ ipcMain.handle('create-video', async (event, videoData) => {
     audioPath: videoData.audioPath,
     bgPath: videoData.bgPath || null,
     bgVideoPath: videoData.bgVideoPath || null,
+    bgMobilePath: videoData.bgMobilePath || null,
+    bgMobileVideoPath: videoData.bgMobileVideoPath || null,
     logoPath: videoData.logoPath || null,
     color: videoData.color,
     text: videoData.text,
@@ -238,9 +254,12 @@ ipcMain.handle('create-video', async (event, videoData) => {
     youtubeTitle: videoData.youtubeTitle || null,
     youtubeDescription: videoData.youtubeDescription || null,
     youtubeTags: videoData.youtubeTags || null,
+    trimStart: videoData.trimStart || 0,
+    trimEnd: videoData.trimEnd || 0,
     status: 'pending', // pending, generating, completed, error
     createdAt: new Date().toISOString(),
     outputPath: null,
+    outputPathMobile: null,
     error: null
   };
   db.videos.unshift(newVideo);

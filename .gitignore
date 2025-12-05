@@ -13,3 +13,4 @@ settings.json
 
 # Videos generados
 outputs/
+.env
